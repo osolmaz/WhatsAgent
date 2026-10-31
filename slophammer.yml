@@ -1,0 +1,46 @@
+go:
+  coverage:
+    threshold: 85
+  targets:
+    - cmd
+    - internal
+  exclude:
+    - "**/*_test.go"
+    - "**/testdata/**"
+  dry:
+    max_findings: 0
+    paths:
+      - cmd
+      - internal
+    exclude:
+      - "**/*_test.go"
+      - "**/testdata/**"
+    structural:
+      enabled: true
+      threshold: 0.82
+      min_lines: 4
+      min_nodes: 20
+    copied_blocks:
+      enabled: true
+      min_tokens: 100
+  crap:
+    max_score: 8
+  mutation:
+    targets:
+      - internal/paths
+      - internal/sqlitedb
+  dependency_boundaries:
+    - from: cmd/whatsagent
+      allow:
+        - internal/cli
+    - from: internal/cli
+      allow:
+        - internal/paths
+        - internal/wa
+    - from: internal/paths
+      allow: []
+    - from: internal/sqlitedb
+      allow: []
+    - from: internal/wa
+      allow:
+        - internal/sqlitedb

@@ -1,0 +1,36 @@
+version: "2"
+
+run:
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - cyclop
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprintf
+        - fmt.Fprintln
+        # Cleanup closes on deferred and error paths, where the first error is the one to report.
+        - (*database/sql.DB).Close
+        - (*os.File).Close
+        - (*github.com/osolmaz/WhatsAgent/internal/wa.Client).Close
+    cyclop:
+      max-complexity: 10
+      package-average: 0
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - cyclop
+
+formatters:
+  enable:
+    - gofmt
