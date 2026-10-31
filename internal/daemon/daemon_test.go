@@ -20,14 +20,25 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/wa"
 )
 
+// shortDir returns a folder under /tmp, because a Unix socket path must stay under 104 bytes.
+func shortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "wa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func dirs(t *testing.T) paths.Dirs {
 	t.Helper()
-	dir := t.TempDir()
+	dir := shortDir(t)
 	return paths.Dirs{Data: dir, Config: dir}
 }
 
 func TestListen(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "d.sock")
+	socket := filepath.Join(shortDir(t), "d.sock")
 	listener, err := Listen(socket)
 	if err != nil {
 		t.Fatal(err)

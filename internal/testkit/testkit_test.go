@@ -9,7 +9,7 @@ import (
 )
 
 func TestDaemon(t *testing.T) {
-	d := Start(t, filepath.Join(t.TempDir(), "d.sock"))
+	d := Start(t, filepath.Join(ShortDir(t), "d.sock"))
 	d.Expect("Welcome to WhatsAgent")
 	d.Receive(SelfChat, "/rules", true)
 	d.Expect("No send rules")

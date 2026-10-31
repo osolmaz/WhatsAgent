@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -21,6 +22,18 @@ import (
 
 // SelfChat is the fake owner's own chat.
 const SelfChat = "100@s.whatsapp.net"
+
+// ShortDir returns a new folder under /tmp for Unix sockets, which must stay under 104 bytes. On
+// macOS the folder of t.TempDir is too long for that.
+func ShortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "wa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
 
 // Sent is one message that the fake connection sent.
 type Sent struct{ Chat, ID, Text string }

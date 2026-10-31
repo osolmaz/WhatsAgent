@@ -105,7 +105,7 @@ func resultText(t *testing.T, resp map[string]any) (string, bool) {
 }
 
 func TestChannelSession(t *testing.T) {
-	socket := filepath.Join(t.TempDir(), "d.sock")
+	socket := filepath.Join(testkit.ShortDir(t), "d.sock")
 	d := testkit.Start(t, socket)
 	d.Core.OnChatName("g@g.us", "Team")
 	if _, err := d.Core.Run(context.Background(), core.Owner, "/route Team dev"); err != nil {
@@ -182,7 +182,7 @@ func TestChannelSession(t *testing.T) {
 }
 
 func TestToolsOnlyWithoutDaemon(t *testing.T) {
-	c := run(t, Options{Harness: "codex"}, filepath.Join(t.TempDir(), "none.sock"))
+	c := run(t, Options{Harness: "codex"}, filepath.Join(testkit.ShortDir(t), "none.sock"))
 	init := c.call("initialize", map[string]any{})
 	caps := init["result"].(map[string]any)["capabilities"].(map[string]any)
 	if _, ok := caps["experimental"]; ok {

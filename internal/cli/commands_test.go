@@ -22,7 +22,7 @@ import (
 // test daemon on its socket.
 func daemonEnv(t *testing.T) (paths.Env, *testkit.Daemon) {
 	t.Helper()
-	state := t.TempDir()
+	state := testkit.ShortDir(t)
 	vars := map[string]string{"XDG_STATE_HOME": state, "XDG_CONFIG_HOME": filepath.Join(state, "config"), "PATH": "/usr/bin"}
 	env := paths.Env{GOOS: "linux", Home: state, Getenv: func(k string) string { return vars[k] }}
 	dirs, _ := paths.Resolve(env)
@@ -124,7 +124,7 @@ func TestChannelCommand(t *testing.T) {
 }
 
 func TestNoDaemonCommands(t *testing.T) {
-	env := paths.Env{GOOS: "linux", Home: t.TempDir(), Getenv: func(string) string { return "" }}
+	env := paths.Env{GOOS: "linux", Home: testkit.ShortDir(t), Getenv: func(string) string { return "" }}
 	if _, err := runCtx(context.Background(), env, "", "status"); err == nil || !strings.Contains(err.Error(), "not running") {
 		t.Errorf("status without a daemon: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestNoDaemonCommands(t *testing.T) {
 }
 
 func TestDaemonCommandWithoutAccount(t *testing.T) {
-	env := paths.Env{GOOS: "linux", Home: t.TempDir(), Getenv: func(string) string { return "" }}
+	env := paths.Env{GOOS: "linux", Home: testkit.ShortDir(t), Getenv: func(string) string { return "" }}
 	if _, err := runCtx(context.Background(), env, "", "daemon", "-v"); !errors.Is(err, wa.ErrNoAccount) {
 		t.Errorf("daemon without an account: %v", err)
 	}

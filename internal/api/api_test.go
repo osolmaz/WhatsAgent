@@ -17,7 +17,7 @@ import (
 
 func start(t *testing.T) (*testkit.Daemon, *api.Client) {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "d.sock")
+	socket := filepath.Join(testkit.ShortDir(t), "d.sock")
 	d := testkit.Start(t, socket)
 	return d, api.NewClient(socket)
 }
@@ -214,7 +214,7 @@ func TestToolsOnlySessionAndWatch(t *testing.T) {
 }
 
 func TestNoDaemon(t *testing.T) {
-	c := api.NewClient(filepath.Join(t.TempDir(), "none.sock"))
+	c := api.NewClient(filepath.Join(testkit.ShortDir(t), "none.sock"))
 	if _, err := c.ToolRaw(context.Background(), "", "status", nil); !errors.Is(err, api.ErrDaemon) {
 		t.Errorf("err = %v, want ErrDaemon", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,9 +29,20 @@ type fakeDaemon struct {
 	resume  bool
 }
 
+// shortDir returns a folder under /tmp, because a Unix socket path must stay under 104 bytes.
+func shortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("/tmp", "wa")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 func startDaemon(t *testing.T) (*fakeDaemon, string) {
 	t.Helper()
-	socket := filepath.Join(t.TempDir(), "codex.sock")
+	socket := filepath.Join(shortDir(t), "codex.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -274,7 +286,7 @@ func TestHome(t *testing.T) {
 }
 
 func TestNoDaemon(t *testing.T) {
-	a := New(Options{Socket: filepath.Join(t.TempDir(), "none.sock")})
+	a := New(Options{Socket: filepath.Join(shortDir(t), "none.sock")})
 	defer a.Close()
 	if _, err := a.Threads(context.Background()); err == nil {
 		t.Error("Threads without a daemon gave no error")
