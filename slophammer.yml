@@ -36,12 +36,69 @@ go:
         - internal/cli
     - from: internal/cli
       allow:
+        - internal/api
+        - internal/core
+        - internal/daemon
+        - internal/mcp
+        - internal/model
         - internal/paths
+        - internal/service
+        - internal/testkit
         - internal/wa
+    - from: internal/api
+      allow:
+        - internal/api
+        - internal/core
+        - internal/model
+        - internal/testkit
+    - from: internal/codex
+      allow:
+        - internal/core
+        - internal/model
+    - from: internal/core
+      allow:
+        - internal/model
+        - internal/store
+    - from: internal/daemon
+      allow:
+        - internal/api
+        - internal/codex
+        - internal/core
+        - internal/home
+        - internal/model
+        - internal/paths
+        - internal/store
+        - internal/wa
+    - from: internal/home
+      allow:
+        - internal/core
+        - internal/model
+    - from: internal/mcp
+      allow:
+        - internal/api
+        - internal/core
+        - internal/model
+        - internal/testkit
+    - from: internal/model
+      allow: []
     - from: internal/paths
+      allow: []
+    - from: internal/service
       allow: []
     - from: internal/sqlitedb
       allow: []
+    - from: internal/store
+      allow:
+        - internal/model
+        - internal/sqlitedb
+    - from: internal/testkit
+      allow:
+        - internal/api
+        - internal/core
+        - internal/daemon
+        - internal/model
+        - internal/store
     - from: internal/wa
       allow:
+        - internal/model
         - internal/sqlitedb

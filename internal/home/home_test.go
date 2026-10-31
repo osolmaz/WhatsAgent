@@ -1,0 +1,196 @@
+package home
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/osolmaz/WhatsAgent/internal/core"
+	"github.com/osolmaz/WhatsAgent/internal/model"
+)
+
+// TestMain lets the test binary stand in for claude: with FAKE_CLAUDE set, it answers each
+// stream-json user message with a result line that echoes it.
+func TestMain(m *testing.M) {
+	switch os.Getenv("FAKE_CLAUDE") {
+	case "echo":
+		fakeClaude()
+		return
+	case "fail":
+		os.Exit(1)
+	}
+	os.Exit(m.Run())
+}
+
+func fakeClaude() {
+	if path := os.Getenv("FAKE_CLAUDE_ARGS"); path != "" {
+		_ = os.WriteFile(path, []byte(strings.Join(os.Args[1:], "\n")), 0o600)
+	}
+	fmt.Println(`{"type":"system","subtype":"init","session_id":"s"}`)
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		var line struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		}
+		_ = json.Unmarshal(scanner.Bytes(), &line)
+		result, _ := json.Marshal(map[string]any{"type": "result", "result": "echo: " + line.Message.Content,
+			"is_error": strings.Contains(line.Message.Content, "fail")})
+		fmt.Println("not json")
+		fmt.Println(string(result))
+	}
+}
+
+type host struct {
+	mu    sync.Mutex
+	posts chan string
+	id    string
+}
+
+func newHost(id string) *host { return &host{posts: make(chan string, 10), id: id} }
+
+func (h *host) homeHost() core.HomeHost {
+	return core.HomeHost{
+		Post:      func(text string) { h.posts <- text },
+		SessionID: h.id,
+		SaveSessionID: func(id string) error {
+			h.mu.Lock()
+			h.id = id
+			h.mu.Unlock()
+			return nil
+		},
+	}
+}
+
+func (h *host) saved() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.id
+}
+
+func (h *host) expect(t *testing.T, want string) {
+	t.Helper()
+	select {
+	case got := <-h.posts:
+		if !strings.Contains(got, want) {
+			t.Fatalf("posted %q, want %q", got, want)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("nothing posted, want %q", want)
+	}
+}
+
+const selfChat = "100@s.whatsapp.net"
+
+func event(chat, text string, fromMe bool) model.Event {
+	role := model.RoleOther
+	if fromMe {
+		role = model.RoleOwner
+	}
+	return model.Event{ChatName: "Team", Message: model.Message{Chat: chat, ID: "M1", Sender: "200@s.whatsapp.net",
+		SenderName: "Sam", Time: time.Date(2026, 11, 1, 1, 0, 0, 0, time.UTC), FromMe: fromMe, Role: role, Text: text}}
+}
+
+func TestPrompt(t *testing.T) {
+	got := Prompt([]model.Event{event(selfChat, "hi home", true), event("g@g.us", "hello", false)}, selfChat, time.UTC)
+	for _, want := range []string{"The owner wrote in the self-chat: hi home", `in "Team" (chat_id g@g.us) from Sam (200@s.whatsapp.net), trust=other`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Prompt() = %q, missing %q", got, want)
+		}
+	}
+	if senderOf(model.Message{FromMe: true}) != "the owner" || senderOf(model.Message{Sender: "x"}) != "x" {
+		t.Error("senderOf is wrong")
+	}
+}
+
+func TestClaudeHome(t *testing.T) {
+	bin, _ := os.Executable()
+	argsFile := filepath.Join(t.TempDir(), "args")
+	t.Setenv("FAKE_CLAUDE", "echo")
+	t.Setenv("FAKE_CLAUDE_ARGS", argsFile)
+	t.Setenv("CLAUDECODE", "1")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := newHost("")
+	home, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: filepath.Join(t.TempDir(), "home"), SelfChat: selfChat,
+		Location: time.UTC, Args: []string{"--model", "claude-opus-5-5"}}, h.homeHost())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h.saved() == "" {
+		t.Fatal("a fresh home saved no session ID")
+	}
+	if err := home.Push(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := home.Push(ctx, []model.Event{event(selfChat, "hello home", true)}); err != nil {
+		t.Fatal(err)
+	}
+	h.expect(t, "echo: [2026-11-01 01:00] The owner wrote in the self-chat: hello home")
+	_ = home.Push(ctx, []model.Event{event(selfChat, "please fail", true)})
+	h.expect(t, "Home failed: echo:")
+	args, _ := os.ReadFile(argsFile)
+	for _, want := range []string{"--session-id\n" + h.saved(), "--permission-prompt-tool\nmcp__whatsagent__approve", "--model\nclaude-opus-5-5"} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("args %q missing %q", args, want)
+		}
+	}
+	if err := home.Verdict(ctx, "x", true); err != nil {
+		t.Error(err)
+	}
+	if env := cleanEnv([]string{"CLAUDECODE=1", "PATH=/bin", "CLAUDE_CODE_SESSION_ID=x"}); len(env) != 1 || env[0] != "PATH=/bin" {
+		t.Errorf("cleanEnv = %v", env)
+	}
+	if _, err := (logWriter{home.opts.Log}).Write([]byte("stderr line\n")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestClaudeHomeResumesAndRecovers(t *testing.T) {
+	bin, _ := os.Executable()
+	argsFile := filepath.Join(t.TempDir(), "args")
+	t.Setenv("FAKE_CLAUDE_ARGS", argsFile)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// A process that fails before its first line, on resume, makes home start a fresh session.
+	t.Setenv("FAKE_CLAUDE", "fail")
+	h := newHost("old-session")
+	home, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat}, h.homeHost())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = home.Push(ctx, []model.Event{event(selfChat, "one", true)})
+	deadline := time.Now().Add(5 * time.Second)
+	for h.saved() == "old-session" && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if h.saved() == "old-session" {
+		t.Fatal("home kept a session it could not resume")
+	}
+
+	t.Setenv("FAKE_CLAUDE", "echo")
+	resumed := newHost("kept-session")
+	home, _ = NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat}, resumed.homeHost())
+	_ = home.Push(ctx, []model.Event{event(selfChat, "two", true)})
+	resumed.expect(t, "two")
+	if args, _ := os.ReadFile(argsFile); !strings.Contains(string(args), "--resume\nkept-session") {
+		t.Errorf("args = %q", args)
+	}
+
+	if _, err := NewClaude(ctx, ClaudeOptions{Bin: "/no/such/claude", Dir: "/proc/no/such/dir"}, newHost("").homeHost()); err == nil {
+		t.Error("NewClaude in an unwritable folder gave no error")
+	}
+	broken, _ := NewClaude(ctx, ClaudeOptions{Bin: "/no/such/claude", Dir: t.TempDir()}, newHost("x").homeHost())
+	if err := broken.Push(ctx, []model.Event{event(selfChat, "x", true)}); err == nil {
+		t.Error("a missing claude binary gave no error")
+	}
+}

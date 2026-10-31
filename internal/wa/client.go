@@ -24,6 +24,9 @@ type Client struct {
 // Open opens the whatsmeow session store at path, creating it when it is missing, and prepares
 // a client for the first device in it, or for a new device when the store has none.
 func Open(ctx context.Context, path string, log *slog.Logger) (*Client, error) {
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
 	db, err := sqlitedb.Open(path)
 	if err != nil {
 		return nil, err

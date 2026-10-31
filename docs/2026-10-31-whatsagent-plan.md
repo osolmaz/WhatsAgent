@@ -9,7 +9,7 @@ tags: [plan, architecture, whatsapp, mcp, claude-code, codex]
 
 ## TL;DR
 
-WhatsAgent is a bridge between one WhatsApp account and the coding agent sessions that the account's owner runs in Claude Code and Codex. The owner controls it from their own "Message Yourself" chat, where messages that start with `/` are commands for WhatsAgent and every other message goes to a background session called home. Each harness gets its own adapter, which wakes a session through Claude Code channels or through the Codex app-server daemon. An existing whatsmeow login can be imported, so an owner can switch from another whatsmeow-based tool without scanning a new QR code. It runs on Linux and macOS, and the build goes straight to the final setup, checking self-chat delivery and Codex pushes live during the first runs.
+WhatsAgent is a bridge between one WhatsApp account and the coding agent sessions that the account's owner runs in Claude Code and Codex. The owner controls it from their own "Message Yourself" chat, where messages that start with `/` are commands for WhatsAgent and every other message goes to a background session called home. Each harness gets its own adapter, which wakes a session through Claude Code channels, through `whatsagent watch` under Claude Code's Monitor tool, or through the Codex app-server daemon. An existing whatsmeow login can be imported, so an owner can switch from another whatsmeow-based tool without scanning a new QR code. The first version runs on Linux and macOS, and the first live run confirmed that WhatsAgent can post in the owner's self-chat and read the owner's commands there.
 
 ## Introduction
 
@@ -45,7 +45,7 @@ WhatsAgent links to the owner's account as a WhatsApp linked device, using [what
 | WhatsApp link, message store, event log, routes           |
 | command core <- self-chat parser, MCP admin tools, GUI    |
 | session registry: who is checked in, who receives pushes  |
-| MCP endpoint: WhatsApp tools + events (SEP-3415 shape)    |
+| local API: WhatsApp tools + event streams (SEP-3415 shape)|
 | adapters: Claude Code (channels, stream-json)             |
 |           Codex (app-server daemon socket)                |
 +--------+---------------------------+----------------------+
@@ -77,6 +77,7 @@ Commands start with `/`. WhatsAgent answers them at once without calling a model
 | `/chats <query>` | Find a chat by name, for use in `/route`. |
 | `/route <chat> <session>` | Send a chat's new messages to a session. |
 | `/unroute <chat>` | Stop sending a chat's messages to any session. |
+| `/routes` | List the routes. |
 | `/rename <session> <name>` | Give a session a stable name. |
 | `/home claude`, `/home codex`, `/home off` | Run home on Claude Code or Codex, or stop it. |
 | `/home new` | Start a fresh home session in place of the current one. |
@@ -85,23 +86,23 @@ Commands start with `/`. WhatsAgent answers them at once without calling a model
 
 Plain text goes to home, and home replies in the self-chat.
 
-Status lines come from WhatsAgent itself. The first one is a welcome message when the account links. After that, WhatsAgent posts a line whenever its state changes, for example when a session checks in or when messages start to wait for an offline session. Lines that arrive close together are merged into one message so the chat stays readable. WhatsAgent's lines and home's replies carry different prefixes, so the owner can tell them apart.
+Status lines come from WhatsAgent itself. The first one is a welcome message when the account links. After that, WhatsAgent posts a line whenever its state changes, for example when it starts or when a session with a route goes online or offline. Every Claude Code session loads the WhatsAgent MCP server, so sessions without a route get no status line. Lines that arrive within a few seconds are merged into one message so the chat stays readable. WhatsAgent's lines start with ⚙️ and home's replies with 🏠, and a session that sends to the self-chat gets "🤖 <session>:" in front.
 
 Approval prompts are the fourth kind. When a session needs approval for a tool call, its adapter can relay the prompt to the self-chat. The owner then answers with `yes abcde` or `no abcde`. The "Adapters" section says how each harness supports this.
 
 WhatsAgent accepts commands only from the owner and only in the self-chat. The owner's messages and WhatsAgent's own messages both appear there as sent by the owner's account, so WhatsAgent records the ID of every message it sends and never treats one of them as a command or a prompt.
 
-### Self-chat delivery risk
+### Self-chat delivery
 
-Sending into Message Yourself from a linked device may not work reliably, because WhatsApp can accept such a message and never show it in Message Yourself. If WhatsAgent sees this behavior, the control room moves to a WhatsApp group whose only member is the owner. Nothing else in this plan changes.
+Sending into Message Yourself from a linked device could have failed silently, because WhatsApp can accept such a message and never show it there. The first live run on 1 November 2026 showed the welcome message and the `/status` reply on the owner's phone, so the control room stays in Message Yourself. If that changes, the control room moves to a WhatsApp group whose only member is the owner. Nothing else in this plan changes.
 
 ## Sessions
 
 The owner opens and closes sessions. The only session WhatsAgent starts is home.
 
-Every harness loads the WhatsAgent MCP server, a small stdio server that the `whatsagent channel` subcommand runs. Claude Code loads it from the WhatsAgent plugin, and Codex loads it from its `config.toml`, after `whatsagent setup claude` or `whatsagent setup codex` registers it. Both register it for the owner's user account, so every session of that harness gets the WhatsApp tools, including sessions started without `whatsagent claude` or `whatsagent codex`. When a session starts, the server connects to the WhatsAgent daemon over a local socket and checks in with the session's harness, folder and name. When the session ends, the socket closes and WhatsAgent marks the session offline, so it needs no process scanning. An adapter can add more check-in data from its harness's own API, as the Codex adapter does.
+Every harness loads the WhatsAgent MCP server, a small stdio server that the `whatsagent channel` subcommand runs. `whatsagent setup claude` registers it with `claude mcp add --scope user`, and `whatsagent setup codex` with `codex mcp add`. Both register it for the owner's user account, so every session of that harness gets the WhatsApp tools, including sessions started without `whatsagent claude` or `whatsagent codex`. When a session starts, the server opens a session stream to the WhatsAgent daemon over a local socket and checks in with the session's harness, folder and name. When the session ends, the stream closes and WhatsAgent marks the session offline, so it needs no process scanning. The environment variable `WHATSAGENT_SESSION` names a session, and otherwise the folder's base name does.
 
-A push session is one that its adapter can wake when a routed message arrives. A tools-only session can read and send through the MCP tools when the owner asks it to, but a new message does not wake it. Which sessions can receive pushes depends on the harness and on how the owner started the session, as the "Adapters" section describes.
+A push session is one that its adapter can wake when a routed message arrives. A tools-only session can read and send through the MCP tools when the owner asks it to, but a new message does not wake it. Which sessions can receive pushes depends on the harness and on how the owner started the session, as the "Adapters" section describes. Each session name has at most one push target at a time, and a newer one replaces the older one.
 
 Routes point at session names, so a route survives when its session restarts. A session's default name is its folder name, and `/rename` or a request inside the session changes it. When the owner closes a session and resumes it later, it checks in under the same name and its routes work again. Messages for an offline session wait in the event log while the self-chat shows how many are waiting.
 
@@ -117,7 +118,9 @@ The owner can create a route in three ways, and all of them run the same code. T
 
 Home is the only session that WhatsAgent starts. It runs on Claude Code or on Codex, as the owner chooses with `/home claude` or `/home codex`, and its adapter starts it. Home receives the owner's plain-text self-chat messages and has the WhatsApp tools and the admin commands. Home's sends follow the send rules like any other session's, so by default a send from home to a chat without a route waits for the owner's `yes`. Owners who want commands only can turn home off with `/home off`.
 
-Home is one long-lived session that survives restarts. When an adapter starts home for the first time, WhatsAgent stores the session's ID in its database. The Claude Code adapter chooses a UUID and passes it with `--session-id`, and the Codex adapter keeps the thread ID that `thread/start` returns. After a WhatsAgent restart or a reboot, the adapter continues the same session with `claude -p --resume <id>` or `thread/resume`, so home keeps its context. Both harnesses compact a long conversation on their own, and `/home new` replaces home with a fresh session when the owner wants a clean start. Each harness keeps its own home, so switching to `/home codex` and back to `/home claude` continues the earlier Claude Code home.
+Home is one long-lived session that survives restarts. When an adapter starts home for the first time, WhatsAgent stores the session's ID in its database. The Claude Code adapter chooses a UUID and passes it with `--session-id`, and the Codex adapter keeps the thread ID that `thread/start` returns. After a WhatsAgent restart or a reboot, the adapter continues the same session with `claude -p --resume <id>` or `thread/resume`, so home keeps its context. When Claude Code cannot resume the stored session, home starts a fresh one. Both harnesses compact a long conversation on their own, and `/home new` replaces home with a fresh session when the owner wants a clean start. Each harness keeps its own home, so switching to `/home codex` and back to `/home claude` continues the earlier Claude Code home.
+
+Home works in the folder `home` inside WhatsAgent's data folder. Its final answer in each turn goes to the self-chat, and the answer `NO_REPLY` posts nothing. Home on Claude Code runs with `--permission-prompt-tool mcp__whatsagent__approve`, so each tool call that needs approval becomes a "yes <code>" question in the self-chat, and the call waits up to 30 minutes for the answer. Home drops the variables that mark a Claude Code session's child processes, so a daemon started from inside a session still starts home as a session of its own.
 
 The owner can watch a Codex home live by attaching a TUI to the same daemon thread. A Claude Code home must be stopped with `/home off` before the owner opens it in a terminal, because two Claude Code processes must not write to one session.
 
@@ -139,7 +142,9 @@ The WhatsAgent MCP endpoint serves tools and events. The tools act on behalf of 
 | `route_here` | Route a chat to the calling session. |
 | `list_sessions` | List checked-in sessions. |
 
-The event API copies the shape of [SEP-3415](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3415), the MCP Events extension (`io.modelcontextprotocol/events`) that the [MCP Triggers and Events Working Group](https://modelcontextprotocol.io/community/working-groups/triggers-events) is drafting. That means `events/list`, plus `events/stream` with a cursor and a heartbeat, and each event's `eventId` is the WhatsApp message ID. The adapters read routed events from this API like any other client. When a harness supports MCP Events, it can connect to the endpoint and subscribe on its own, and its adapter no longer needs to push. The draft is not merged yet, so the event format lives in one module that can change with it.
+The MCP server also has `list_chats` for finding a chat, `command` for running a self-chat command (commands that change routes or rules wait for the owner's yes), and `approve`, which home uses as its permission prompt tool.
+
+Events follow the shape of [SEP-3415](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3415), the MCP Events extension (`io.modelcontextprotocol/events`) that the [MCP Triggers and Events Working Group](https://modelcontextprotocol.io/community/working-groups/triggers-events) is drafting. The event log numbers every event, and a stream resumes after the number it was given and sends heartbeats while idle. Today the daemon serves that stream on its own socket, as JSON lines of `events`, `heartbeat` and `verdict` frames. The MCP server turns that stream into channel notifications. When the extension is merged and a harness supports it, the MCP server adds `events/list` and `events/stream` over the same log, and the harness subscribes on its own. The event format lives in the `model` and `api` packages, so it can change with the draft.
 
 ## Adapters
 
@@ -149,13 +154,13 @@ Claude Code and Codex each have their own way to wake a session and to ask for a
 
 The Claude Code adapter pushes through [Claude Code channels](https://code.claude.com/docs/en/channels). The `whatsagent claude` subcommand starts Claude Code with the WhatsAgent channel turned on, passes any other arguments through, and sets an environment variable that tells the MCP server pushes will arrive. The MCP server then declares the `claude/channel` capability and turns each routed event into a `notifications/claude/channel` message, which wakes Claude at once. With the `claude/channel/permission` capability, the same server receives Claude Code's approval prompts and relays them to the self-chat.
 
-A Claude Code session started without the flag is tools-only. Claude Code Desktop loads MCP servers and plugins, but its docs do not mention channels, so it counts as tools-only until tested. Home on Claude Code runs the CLI headless in stream-json mode (`claude -p --input-format stream-json --output-format stream-json`), the protocol that the Claude Agent SDKs use, and the adapter writes each self-chat message to its input.
+A Claude Code session started without the channel flag can still receive pushes through `whatsagent watch`. Run under Claude Code's Monitor tool, `whatsagent watch --session <name> --chat <chat>` checks in as a push session and prints each routed message as one line, which the Monitor turns into a notification that wakes the session. WhatsAgent keeps the watch's cursor under the session name, so a restarted watch misses nothing. `--since 0` replays every stored message. This path needs no development flag and works in any session that has the Monitor tool. Claude Code Desktop loads MCP servers and plugins, but its docs do not mention channels, so it counts as tools-only until tested. Home on Claude Code runs the CLI headless in stream-json mode (`claude -p --input-format stream-json --output-format stream-json`), the protocol that the Claude Agent SDKs use, and the adapter writes each batch of messages to its input as one user turn.
 
 ### Codex adapter
 
 Codex runs a managed app-server daemon that listens on a local socket, `$CODEX_HOME/app-server-control/app-server-control.sock`. A Codex TUI started with `codex --remote unix://` keeps its threads in that daemon, and the Codex adapter connects to the same socket as one more app-server client. The `whatsagent codex` subcommand starts the TUI in this mode and passes any other arguments through.
 
-The adapter reads the daemon's thread list to find Codex sessions and their folders, and it matches them with the MCP server's check-ins. When a routed message arrives for an idle thread, the adapter sends it with `turn/start`. Messages that arrive during a running turn wait and go out together after `turn/completed`. `turn/start` steers into a turn that starts in the moment before it arrives, and an idle-only variant is still a feature request ([openai/codex#38289](https://github.com/openai/codex/issues/38289)), so the adapter checks the thread's status right before each push and accepts that small race. The app-server also sends approval requests to its clients, and the adapter relays them to the self-chat if the daemon sends them to it, which the first live run of the Codex adapter checks. Home on Codex is a thread that the adapter starts on the daemon.
+Every 20 seconds the adapter reads the daemon's loaded threads (`thread/loaded/list` and `thread/read`) and makes each one a push session, leaving out sub-agent and ephemeral threads and home's own thread. A thread's session name is its name, or its folder's base name with `-codex` when it has none. When a routed message arrives for an idle thread, the adapter sends it with `turn/start`. Messages that arrive during a running turn wait and go out together after `turn/completed`. `turn/start` steers into a turn that starts in the moment before it arrives, and an idle-only variant is still a feature request ([openai/codex#38289](https://github.com/openai/codex/issues/38289)), so the adapter checks the thread's status right before each push and accepts that small race. The app-server also sends approval requests to the client that started a turn. The adapter relays command and file-change approvals to the self-chat and answers `accept` or `decline`, and it refuses the other request types. Home on Codex is a thread that the adapter starts on the daemon with home's instructions as developer instructions, and the adapter posts the last agent message of each turn to the self-chat.
 
 Codex Desktop and a TUI started without `--remote` run their own private app-server, which no other process can reach ([openai/codex#33556](https://github.com/openai/codex/issues/33556), [#47193](https://github.com/openai/codex/issues/47193)). Sessions there are tools-only.
 
@@ -164,7 +169,7 @@ Codex Desktop and a TUI started without `--remote` run their own private app-ser
 | Harness and launch | Push | Approval relay | Home |
 | --- | --- | --- | --- |
 | Claude Code CLI started with `whatsagent claude` | channel | permission relay | stream-json |
-| Claude Code CLI without the flag | none | none | none |
+| Claude Code CLI without the flag | `whatsagent watch` under the Monitor tool | none | none |
 | Claude Code Desktop | none until channels are tested | none | none |
 | Codex TUI started with `whatsagent codex` | `turn/start` on the daemon | app-server approval requests, if the test passes | daemon thread |
 | Codex Desktop, or a TUI without `--remote` | none | none | none |
@@ -187,8 +192,10 @@ These rules live in the WhatsAgent daemon, so no prompt can change them.
 - Every send goes through the send rules, so a session cannot reach a chat that the rules keep from it.
 - Only the owner's own messages count as instructions. Anyone in a routed group can write text that tries to steer the agent, so every event carries a trust field that marks text from other people as data.
 - WhatsAgent adds each route's reply prefix to every send on that route.
-- Sends are spaced out. whatsmeow is an unofficial client, and WhatsApp can ban numbers that send automated messages.
+- Sends are spaced at least 2 seconds apart. whatsmeow is an unofficial client, and WhatsApp can ban numbers that send automated messages.
 - Only the owner's user can open the daemon's socket, and each checked-in session gets its own token.
+
+These rules bind the MCP tools. The `whatsagent` CLI acts as the owner, so a session that may run shell commands as the owner's user can reach every chat through it, as it could read the session store itself. Send rules keep a well-behaved agent and a prompt injection inside its tools in bounds; a session the owner does not trust needs a sandbox without shell access to the owner's account.
 
 ## Delivery guarantees
 
@@ -209,19 +216,17 @@ WhatsAgent is one Go module that builds one binary, `whatsagent`, with subcomman
 | WhatsApp protocol | `go.mau.fi/whatsmeow` | MPL-2.0. One internal package wraps it, so whatsmeow types stay out of the routing and MCP code. |
 | QR codes | `github.com/mdp/qrterminal/v3` | Prints QR codes in the terminal for `whatsagent link`. |
 | Storage | `database/sql` with `modernc.org/sqlite` | Two database files. whatsmeow's session store holds the device keys, and the WhatsAgent database holds messages, the event log, routes, sessions and cursors. `sqlstore.NewWithDB` accepts a `*sql.DB` that WhatsAgent opens, so both files can use this CGO-free driver, which the first link confirms. Every open sets WAL mode, foreign keys and a busy timeout. |
-| Migrations | `github.com/pressly/goose/v3` | Only for the WhatsAgent database, because whatsmeow migrates its own store. |
-| MCP | `github.com/modelcontextprotocol/go-sdk` v1.7.0 or later | v1.7.0 can register custom JSON-RPC methods ([#956](https://github.com/modelcontextprotocol/go-sdk/pull/956)), which the SEP-3415 methods need. |
-| Codex app-server client | `github.com/gorilla/websocket`, with Go types generated from `codex app-server generate-json-schema` | The daemon's control socket speaks JSON-RPC over WebSocket. The generated types are committed and regenerated when the supported Codex version changes. |
-| HTTP | `net/http` | The daemon serves only the MCP handler and a small admin API on a local socket, so a web framework would add nothing. |
-| CLI | `github.com/spf13/cobra` | Subcommands `link`, `daemon`, `setup`, `claude`, `codex`, `channel`, `send`, `export`, `allow`, `ask`, `deny` and `status`. |
+| Migrations | `embed` and `PRAGMA user_version` | Only for the WhatsAgent database, because whatsmeow migrates its own store. Each migration is an embedded SQL file, and the schema version counts the applied ones. |
+| MCP | A hand-written stdio JSON-RPC server | The server needs custom notifications (`notifications/claude/channel`), a pinned protocol revision and permission relay. The Go MCP SDK cannot send custom notifications ([#1146](https://github.com/modelcontextprotocol/go-sdk/pull/1146) was closed), and the few methods the server answers fit in one file. |
+| Codex app-server client | `github.com/gorilla/websocket` | The daemon's control socket speaks JSON-RPC over WebSocket. The adapter decodes only the fields it uses from `thread/*`, `turn/*` and approval messages, checked against `codex app-server generate-json-schema` for Codex 0.166. |
+| HTTP | `net/http` | The daemon serves a small JSON API on its Unix socket: session streams, tool calls, permission relay and watch streams, with streams as JSON lines. |
+| CLI | `github.com/spf13/cobra` | Subcommands `link`, `daemon`, `service`, `status`, `command`, `send`, `react`, `media`, `chats`, `messages`, `search`, `export`, `changes`, `watch`, `channel`, `setup`, `claude` and `codex`. Rules and routes change through `whatsagent command "/allow ..."`, which runs the command core. |
 | Logging | `log/slog` | A small adapter implements whatsmeow's `waLog.Logger` on top of it, so there is one logging stack. |
-| Concurrency | `golang.org/x/time/rate` and `golang.org/x/sync/errgroup` | The rate limiter spaces out sends, and the errgroup runs the daemon's goroutines. |
+| Concurrency | The standard library | A mutex and the time of the last send space out sends, and plain goroutines with one context run the daemon. |
 | Session tokens | `crypto/rand` | Opaque random tokens, because a token grants access to WhatsApp. |
-| Tests | `testing`, `testify` and hand-written fakes of the WhatsApp wrapper and both harnesses | The fakes let end-to-end tests run without a phone or a model. |
+| Tests | `testing` and hand-written fakes | A fake WhatsApp connection serves a real daemon API on a temporary socket, and stand-ins for `claude` and the Codex app-server let end-to-end tests run without a phone or a model. |
 
 Routes and sessions live in the WhatsAgent database, and only the command core changes them. A JSON export lets the owner inspect or back them up.
-
-The Go MCP SDK has one gap that matters here. Claude Code channels need the server to send a custom notification, `notifications/claude/channel`, and the SDK pull request for custom outbound notifications ([#1146](https://github.com/modelcontextprotocol/go-sdk/pull/1146)) was closed without merging. The Claude Code adapter step checks whether the custom-method support from #956 can send it. If it cannot, the MCP server implements its small stdio MCP layer by hand, following the [channels reference](https://code.claude.com/docs/en/channels-reference).
 
 Slophammer for Go, `govulncheck` and race tests run locally and in CI from the first code commit.
 
@@ -251,18 +256,19 @@ whatsmeow covers the WhatsApp protocol only. WhatsAgent has to build the message
 
 ## Build order
 
-The build goes straight to the final setup. The self-chat and Codex questions are checked live during the first runs, and a setting moves the control room to a one-member group if self-chat delivery fails.
+The build went straight to the final setup. Steps 1 to 8 are built and covered by tests, and the owner's account moved to WhatsAgent on 1 November 2026, with self-chat delivery checked live.
 
 1. Set up the Go module, with Slophammer for Go and CI on Linux and macOS.
 2. Build the daemon core, which covers linking with QR codes, `--phone` and `--import`, plus the stores, the event log, the command core and the first self-chat commands.
 3. Move the owner's account to WhatsAgent and run the daemon as a service, checking self-chat delivery on the way.
-4. Build the Claude Code adapter, starting with the plugin, check-in and tools, then adding pushes through `whatsagent claude`.
-5. Build the Codex adapter, starting with thread discovery and check-in, then adding pushes through `whatsagent codex`, and check that an attached TUI shows the pushed turns.
+4. Build the Claude Code adapter with the MCP server's check-in and tools and with pushes through `whatsagent claude` and `whatsagent watch`.
+5. Build the Codex adapter, which finds threads and pushes with `turn/start`.
 6. Add home on both harnesses.
 7. Add approval relay for both harnesses, and merged status lines.
-8. Add `whatsagent send` and `whatsagent export` for scripts.
-9. Build the desktop app on the admin API.
-10. Move pushes to MCP Events for each harness that implements the extension once it is merged.
+8. Add `whatsagent send`, `export`, `changes`, `react` and `media` for scripts.
+9. Check live that an attached Codex TUI shows pushed turns, and that Claude Code Desktop registers the channel.
+10. Build the desktop app on the daemon API.
+11. Move pushes to MCP Events for each harness that implements the extension once it is merged.
 
 ## References
 
