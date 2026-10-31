@@ -89,7 +89,3 @@ func (d Dirs) Socket() (string, error) {
 	}
 	return path, nil
 }
-
-// mutate4go-manifest-begin
-// {"version":1,"tested_at":"2026-10-31T23:35:30+08:00","module_hash":"a113134b992a22011d5d19712a4e6042e61d9ba1bcabdd9ce5979b9ef49787f2","functions":[{"id":"func/FromOS","name":"FromOS","line":30,"end_line":36,"hash":"9c739b5b19a143f587dbeb3f2200a201dea1398fd6a922b99d228bb0609a4d75"},{"id":"func/Resolve","name":"Resolve","line":45,"end_line":61,"hash":"1b57d687b91dd5c0ac50116ee8f777a0f935f6624e24626f38f575f57f89c586"},{"id":"func/xdg","name":"xdg","line":65,"end_line":72,"hash":"5fbb559ff433f898db84700150bf114b94a903d85cf698a3935d76b824d801f8"},{"id":"func/Dirs.SessionDB","name":"Dirs.SessionDB","line":75,"end_line":77,"hash":"bfdfb6ecf5d5a4ef51585d64279ec0583336a044e6bdb67687b5e6624eb8c238"},{"id":"func/Dirs.StateDB","name":"Dirs.StateDB","line":80,"end_line":82,"hash":"31836b2f1805a94faa2c6e4fb791cc07d0bc13c95a62534de6245fe535e27d2d"},{"id":"func/Dirs.Socket","name":"Dirs.Socket","line":85,"end_line":91,"hash":"de1fd9c610780b0f0ec206e51b75b0b7d685de64a80705dd04d55720b4033bd4"}]}
-// mutate4go-manifest-end

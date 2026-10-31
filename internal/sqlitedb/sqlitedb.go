@@ -89,7 +89,3 @@ func restrict(path string) error {
 	}
 	return nil
 }
-
-// mutate4go-manifest-begin
-// {"version":1,"tested_at":"2026-11-01T00:03:11+08:00","module_hash":"6a576bd5fea0110d8cf20e9ef1683e6f7c1ddda05c71dbbf54f73f2c4c7c9525","functions":[{"id":"func/Open","name":"Open","line":34,"end_line":54,"hash":"35af10d30809d790ea6606b5b949b605794698d1693a1ce09593e7d4a25cbae2"},{"id":"func/OpenReadOnly","name":"OpenReadOnly","line":57,"end_line":71,"hash":"a09435d450c1f023579807c0ec676d36123d3a8aae5afb6a334697169f506cc2"},{"id":"func/dsn","name":"dsn","line":74,"end_line":76,"hash":"ef8f589ac44ce5c84512f1371e41fa92cf9aabb870644a52ec7f93db8e63f655"},{"id":"func/fileURI","name":"fileURI","line":78,"end_line":80,"hash":"bcf5d11824d119b79a761ee921b0cb10a3d65b749fc91663de1fd43c998b3b93"},{"id":"func/restrict","name":"restrict","line":83,"end_line":91,"hash":"6723faf75d43b1a378697985f2858e497aaead0d76b74ec768864a062fab3e92"}]}
-// mutate4go-manifest-end

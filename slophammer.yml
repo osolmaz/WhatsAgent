@@ -1,3 +1,8 @@
+rules:
+  go.mutation-required:
+    disabled: true
+    reason: mutation testing is off by the owner's decision
+
 go:
   coverage:
     threshold: 85
@@ -25,10 +30,6 @@ go:
       min_tokens: 100
   crap:
     max_score: 8
-  mutation:
-    targets:
-      - internal/paths
-      - internal/sqlitedb
   dependency_boundaries:
     - from: cmd/whatsagent
       allow:

@@ -26,8 +26,9 @@ golangci-lint run
 govulncheck ./...
 slophammer-go dry .
 slophammer-go crap .
-slophammer-go mutate .
 slophammer-go check . --execute
 ```
+
+Mutation testing is off by the owner's decision: do not add `slophammer-go mutate` or mutation targets.
 
 `gofmt -l .` must print nothing. Coverage must stay at 85% or above, CRAP scores at 8 or below, and DRY findings at 0. `slophammer.yml` declares the dependency boundaries between packages; extend it when you add a package. The Slophammer standards are described in its [agent entrypoint](https://github.com/osolmaz/slophammer/blob/main/docs/AGENT_ENTRYPOINT.md).

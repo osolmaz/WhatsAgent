@@ -46,7 +46,6 @@ jobs:
       - run: go install github.com/osolmaz/slophammer/go/cmd/slophammer-go@${SLOPHAMMER_GO_VERSION}
       - run: slophammer-go dry .
       - run: slophammer-go crap .
-      - run: slophammer-go mutate .
       - run: slophammer-go check .
       - run: slophammer-go check . --execute
 
