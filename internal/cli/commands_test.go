@@ -179,6 +179,13 @@ func seams(t *testing.T) *[]string {
 func TestSetupLaunchAndService(t *testing.T) {
 	ran := seams(t)
 	env, _ := daemonEnv(t)
+	bin := testkit.ShortDir(t)
+	for _, name := range []string{"claude", "codex"} {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\n"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	if out, err := runCtx(context.Background(), env, "", "setup", "claude"); err != nil || !strings.Contains(out, "Registered") {
 		t.Errorf("setup claude = %q, %v", out, err)
 	}
@@ -191,7 +198,7 @@ func TestSetupLaunchAndService(t *testing.T) {
 	if _, err := runCtx(context.Background(), env, "", "claude", "--resume", "x"); err != nil {
 		t.Error(err)
 	}
-	if _, err := runCtx(context.Background(), env, "", "codex", "resume"); err != nil && !strings.Contains(err.Error(), "executable file not found") {
+	if _, err := runCtx(context.Background(), env, "", "codex", "resume"); err != nil {
 		t.Error(err)
 	}
 	if out, err := runCtx(context.Background(), env, "", "service", "install"); err != nil || !strings.Contains(out, "whatsagent.service") {
@@ -210,8 +217,10 @@ func TestSetupLaunchAndService(t *testing.T) {
 			t.Errorf("ran:\n%s\nmissing %q", joined, want)
 		}
 	}
-	if !strings.Contains(joined, "--dangerously-load-development-channels server:whatsagent --resume x") && !strings.Contains(joined, "claude") {
-		t.Errorf("claude launch missing:\n%s", joined)
+	for _, want := range []string{"exec claude --dangerously-load-development-channels server:whatsagent --resume x", "exec codex --remote unix:// resume"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("ran:\n%s\nmissing %q", joined, want)
+		}
 	}
 	harnessSetup["broken"] = func(string) [][]string { return [][]string{{"fail"}, {"fail"}} }
 	defer delete(harnessSetup, "broken")
