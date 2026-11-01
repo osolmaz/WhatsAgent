@@ -125,8 +125,8 @@ type Core struct {
 	homeStop context.CancelFunc
 	homeOn   string
 	agents   map[string]*chatAgent
-	// delivered is when each session last got messages.
-	delivered map[string]time.Time
+	// activity is what each session got recently.
+	activity map[string]*activity
 
 	sendMu   sync.Mutex
 	lastSend time.Time
@@ -147,19 +147,19 @@ func New(cfg Config) *Core {
 		cfg.AgentIdle = 15 * time.Minute
 	}
 	return &Core{
-		cfg:       cfg,
-		st:        cfg.Store,
-		wa:        cfg.WhatsApp,
-		log:       cfg.Log,
-		ctx:       context.Background(),
-		outbox:    make(chan string, 64),
-		state:     "starting",
-		conns:     map[string]*conn{},
-		subs:      map[string]*subscriber{},
-		pending:   map[string]*pending{},
-		closed:    map[string]time.Time{},
-		agents:    map[string]*chatAgent{},
-		delivered: map[string]time.Time{},
+		cfg:      cfg,
+		st:       cfg.Store,
+		wa:       cfg.WhatsApp,
+		log:      cfg.Log,
+		ctx:      context.Background(),
+		outbox:   make(chan string, 64),
+		state:    "starting",
+		conns:    map[string]*conn{},
+		subs:     map[string]*subscriber{},
+		pending:  map[string]*pending{},
+		closed:   map[string]time.Time{},
+		agents:   map[string]*chatAgent{},
+		activity: map[string]*activity{},
 	}
 }
 
@@ -324,7 +324,7 @@ func (c *Core) prepare(ctx context.Context, m model.Message, live bool) model.Me
 // dispatch acts on a stored live update: it runs a self-chat command, or wakes the sessions.
 func (c *Core) dispatch(ctx context.Context, u model.Update, seq int64) {
 	if u.Kind == model.New && u.Message.Role == model.RoleCommand {
-		c.handleCommand(ctx, u.Message.Text)
+		c.handleCommand(ctx, u.Message.Chat, u.Message.Text)
 		return
 	}
 	if u.Kind == model.New {
@@ -340,7 +340,7 @@ func (c *Core) role(ctx context.Context, m model.Message) model.Role {
 	if !m.FromMe {
 		return model.RoleOther
 	}
-	if m.Chat == c.wa.SelfChat() && isCommand(m.Text) {
+	if (m.Chat == c.wa.SelfChat() && isCommand(m.Text)) || c.verdict(m) {
 		return model.RoleCommand
 	}
 	return model.RoleOwner
@@ -367,9 +367,11 @@ func (c *Core) fillChatName(ctx context.Context, m model.Message) {
 	c.OnChatName(m.Chat, name)
 }
 
-func (c *Core) handleCommand(ctx context.Context, text string) {
+// handleCommand runs a command line or an approval answer that the owner wrote in chat. Only
+// answers come from chats other than the self-chat.
+func (c *Core) handleCommand(ctx context.Context, chat, text string) {
 	if v := verdictPattern.FindStringSubmatch(text); v != nil {
-		c.answer(ctx, strings.ToLower(v[2]), strings.HasPrefix(strings.ToLower(v[1]), "y"))
+		c.answer(ctx, chat, strings.ToLower(v[2]), strings.HasPrefix(strings.ToLower(v[1]), "y"))
 		return
 	}
 	reply, err := c.Run(ctx, Owner, text)

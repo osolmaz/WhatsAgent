@@ -37,7 +37,7 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "send",
-		"description": "Send a text message to a WhatsApp chat. WhatsAgent puts the agent prefix, such as the agents' name, in front of it, so write only the message. The owner's send rules decide whether it goes out at once, waits for the owner's yes, or is refused; the result says which.",
+		"description": "Send a text message to a WhatsApp chat. WhatsAgent puts the agent prefix, such as the agents' name, in front of it, so write only the message. An answer in a chat that sent you a message in the last 15 minutes goes out at once; a message to any other chat waits for the owner's yes, which WhatsAgent asks for itself with the exact text. The owner's send rules can change both; the result says what happened.",
 		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "text": str("The message text.")}, "chat", "text"),
 	},
 	{

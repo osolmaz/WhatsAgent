@@ -53,7 +53,7 @@ The `keyword` mode shows the agent only your messages that name it, `all` shows 
 
 Agents write only their message, and WhatsAgent puts a prefix in front of it so people can tell the agent's messages from yours. `/prefix` sets it as any text, with `{name}` and `{session}` filled in, `\n` for a line break, and WhatsApp formatting such as `*bold*`. The default, `🤖 *{name}*:`, makes a message read "🤖 **Bob**: On it."
 
-When an agent wants to send somewhere it may not, WhatsAgent asks you in your "Message Yourself" chat, and you answer with the two-digit code, such as `yes 42` or `no 42`. Home and the chat agents approve their own tool calls with Claude Code's auto mode or Codex's auto review, and ask you only when that cannot decide; `/auto off` makes them ask every time.
+An agent answers on its own only in a chat that just wrote to it. Anything else, such as a message to another chat, waits for your yes. WhatsAgent asks in the chat where you last talked to that agent, or in your "Message Yourself" chat, and you answer with the two-digit code, such as `yes 42` or `no 42`. WhatsAgent writes the question itself from the real action, with the target chat and the exact text, so an agent cannot misrepresent it; `/approvals self` sends every such question to your "Message Yourself" chat. Home and the chat agents approve their own tool calls with Claude Code's auto mode or Codex's auto review, and ask you only when that cannot decide; `/auto off` makes them ask every time.
 
 ### Watching the agents
 

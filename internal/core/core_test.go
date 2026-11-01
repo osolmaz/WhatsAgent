@@ -390,6 +390,7 @@ func TestSendRulesAndApprovals(t *testing.T) {
 		t.Fatal(err)
 	}
 	bot := Caller{Session: "bot"}
+	h.converse("bot", "g@g.us", model.RoleOther)
 
 	if out, err := h.core.Send(ctx, bot, "Team", "on it"); err != nil || !strings.Contains(out, "sent") {
 		t.Fatalf("routed send = %q, %v", out, err)
@@ -404,7 +405,7 @@ func TestSendRulesAndApprovals(t *testing.T) {
 	if err != nil || !strings.Contains(out, "waiting for the owner") {
 		t.Fatalf("unrouted send = %q, %v", out, err)
 	}
-	code := h.expectCode("bot wants to send to Sam")
+	code := h.expectCode("session bot wants to send this message to \"Sam\" (direct chat):\n🤖 *Agent*: hello Sam")
 	h.receive(self, "YES "+code, true)
 	h.expect("hello Sam")
 
@@ -434,7 +435,7 @@ func TestSendRulesAndApprovals(t *testing.T) {
 	h.wa.mu.Lock()
 	h.wa.failSend = errors.New("offline")
 	h.wa.mu.Unlock()
-	h.core.answer(ctx, code, true)
+	h.core.answer(ctx, self, code, true)
 	h.wa.mu.Lock()
 	h.wa.failSend = nil
 	h.wa.mu.Unlock()
@@ -536,7 +537,7 @@ func TestSessionCommandsWaitForOwner(t *testing.T) {
 	h.expect("Not run.")
 	_, _ = h.core.Run(ctx, bot, "/route nowhere bot")
 	code = h.expectCode("/route nowhere bot")
-	h.core.answer(ctx, code, true)
+	h.core.answer(ctx, self, code, true)
 	h.expect("Error: no chat matches")
 	if out, _ := h.core.Run(ctx, bot, "/rules"); !strings.Contains(out, "allow bot -> g@g.us") {
 		t.Errorf("session /rules = %q", out)
@@ -589,7 +590,7 @@ func TestApproveAndRelay(t *testing.T) {
 	go func() {
 		answer <- h.core.Approve(ctx, Caller{Session: "home"}, "Bash", `{"command":"ls"}`, time.Minute)
 	}()
-	code := h.expectCode("home wants to use Bash")
+	code := h.expectCode("session home wants to use the tool Bash with this input:\n{\"command\":\"ls\"}")
 	h.receive(self, "yes "+code, true)
 	if !<-answer {
 		t.Error("Approve after yes = false")
@@ -604,7 +605,7 @@ func TestApproveAndRelay(t *testing.T) {
 	go func() { _ = h.core.Subscribe(ctx, token, "channel", p) }()
 	time.Sleep(50 * time.Millisecond)
 	h.core.RelayPermission(Caller{Session: name}, "qwert", "Write", "write a file", "{}")
-	code = h.expectCode("dev wants to use Write")
+	code = h.expectCode("session dev wants to use the tool Write with this input:\n{}\nThe agent's own description: write a file")
 	h.receive(self, "yes "+code, true)
 	select {
 	case v := <-p.verdicts:
@@ -615,7 +616,7 @@ func TestApproveAndRelay(t *testing.T) {
 		t.Fatal("no verdict")
 	}
 	h.core.RelayPermission(Caller{Session: "gone"}, "asdfg", "Write", "", "")
-	code = h.expectCode("gone wants to use Write")
+	code = h.expectCode("session gone wants to use the tool Write")
 	h.receive(self, "no"+code, true)
 	h.expect("gone is offline")
 	if clip("  abcdef ", 3) != "abc…" {

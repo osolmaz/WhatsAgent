@@ -184,7 +184,7 @@ func TestChannelSession(t *testing.T) {
 	}
 
 	c.send(`{"jsonrpc":"2.0","method":"notifications/claude/channel/permission_request","params":{"request_id":"qwert","tool_name":"Bash","description":"list files","input_preview":"{\"command\":\"ls\"}"}}`)
-	prompt := d.Expect("dev wants to use Bash: list files")
+	prompt := d.Expect("session dev wants to use the tool Bash with this input:\n{\"command\":\"ls\"}\nThe agent's own description: list files")
 	_, rest, _ := strings.Cut(prompt.Text, `"no `)
 	code, _, _ := strings.Cut(rest, `"`)
 	d.Receive(testkit.SelfChat, "no "+code, true)

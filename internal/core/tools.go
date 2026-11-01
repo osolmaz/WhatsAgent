@@ -86,7 +86,7 @@ func (c *Core) routedTo(ctx context.Context, session, chat string) (model.Route,
 }
 
 // permission applies the send rules to a send from caller to chat. Without a rule, a session may
-// write to the self-chat, and to a chat it handles while the chat's mode lets it see the chat.
+// answer in a conversation and write to the self-chat; see mayAnswer.
 func (c *Core) permission(ctx context.Context, caller Caller, chat string) (model.Permission, error) {
 	if caller.owner {
 		return model.Allow, nil
@@ -95,9 +95,7 @@ func (c *Core) permission(ctx context.Context, caller Caller, chat string) (mode
 	if err != nil {
 		return "", err
 	}
-	v, handles := c.viewFor(ctx, caller, chat)
-	allowed := chat == c.wa.SelfChat() || (handles && v.talks())
-	return model.Decide(rules, caller.Session, chat, allowed), nil
+	return model.Decide(rules, caller.Session, chat, c.mayAnswer(ctx, caller.Session, chat)), nil
 }
 
 // viewFor returns what caller may read of chat, and false when it may read none of it. The owner
@@ -206,7 +204,11 @@ func (c *Core) Send(ctx context.Context, caller Caller, ref, text string) (strin
 		return "", err
 	}
 	text = c.prefixed(ctx, caller, jid, text)
-	return c.gate(ctx, caller, jid, "send to", text, func(ctx context.Context) (string, error) {
+	if caller != Owner && forged(text) {
+		return "", errForged
+	}
+	action := fmt.Sprintf("send this message to %s:\n%s", c.describeChat(ctx, jid), text)
+	return c.gate(ctx, caller, jid, action, func(ctx context.Context) (string, error) {
 		id, err := c.sendText(ctx, jid, text)
 		return "sent, id " + id, err
 	})
@@ -222,8 +224,9 @@ func (c *Core) prefixed(ctx context.Context, caller Caller, jid, text string) st
 }
 
 // gate runs act when the send rules allow caller to act on chat, asks the owner first for ask,
-// and refuses for deny.
-func (c *Core) gate(ctx context.Context, caller Caller, jid, what, detail string,
+// and refuses for deny. action describes act for the owner; WhatsAgent writes it from the
+// action's real arguments, never from the agent's words.
+func (c *Core) gate(ctx context.Context, caller Caller, jid, action string,
 	act func(ctx context.Context) (string, error)) (string, error) {
 	permission, err := c.permission(ctx, caller, jid)
 	if err != nil {
@@ -233,12 +236,13 @@ func (c *Core) gate(ctx context.Context, caller Caller, jid, what, detail string
 	case model.Allow:
 		return act(ctx)
 	case model.Ask:
-		chat, _ := c.st.Chat(ctx, jid)
-		code := c.ask(fmt.Sprintf("%s wants to %s %s:\n%s", caller.Session, what, chat.Label(), detail),
+		where := c.approvalChat(ctx, caller.Session)
+		code := c.askIn(where, fmt.Sprintf("Approval: the agent session %s wants to %s", caller.Session, action),
 			func(ctx context.Context, allow bool) string {
 				return c.decided(ctx, allow, act)
 			})
-		return fmt.Sprintf("waiting for the owner's approval in the self-chat (code %s); it goes out after a yes", code), nil
+		return fmt.Sprintf("waiting for the owner's yes in %s (code %s); it goes out after a yes",
+			c.describeChat(ctx, where), code), nil
 	}
 	return "", fmt.Errorf("%w: a send rule denies %s for %s", ErrNotAllowed, jid, caller.Session)
 }
@@ -267,9 +271,19 @@ func (c *Core) React(ctx context.Context, caller Caller, ref, id, emoji string) 
 	if sender == "" {
 		sender = m.Sender
 	}
-	return c.gate(ctx, caller, jid, "react "+emoji+" in", m.Body(), func(ctx context.Context) (string, error) {
+	action := fmt.Sprintf("react %s in %s to this message from %s:\n%s", emoji, c.describeChat(ctx, jid),
+		senderLabel(m), m.Body())
+	return c.gate(ctx, caller, jid, action, func(ctx context.Context) (string, error) {
 		return "reacted", c.wa.React(ctx, jid, sender, id, emoji)
 	})
+}
+
+// senderLabel names who wrote a message.
+func senderLabel(m model.Message) string {
+	if m.SenderName != "" {
+		return m.SenderName
+	}
+	return m.Sender
 }
 
 // DownloadMedia saves the media of a stored message in the media folder and returns its path.

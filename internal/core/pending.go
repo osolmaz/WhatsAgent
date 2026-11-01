@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/osolmaz/WhatsAgent/internal/model"
 )
 
 // Approval codes are two-digit numbers, from 10 to 99, that are quick to type on a phone. No two
@@ -19,9 +21,11 @@ const (
 	codeRest = time.Hour
 )
 
-// pending is a question to the owner that waits for "yes <code>" or "no <code>".
+// pending is a question to the owner that waits for "yes <code>" or "no <code>". The owner
+// answers it in the chat where WhatsAgent asked, or in the self-chat.
 type pending struct {
 	code   string
+	chat   string
 	decide func(ctx context.Context, allow bool) string
 }
 
@@ -51,15 +55,33 @@ func (c *Core) newCode() string {
 	return strconv.Itoa(codeMax + 1 + len(c.pending))
 }
 
-// ask posts prompt in the self-chat and runs decide with the owner's answer. decide returns the
-// line to post afterwards. It returns the code to answer with.
+// ask asks in the self-chat; see askIn.
 func (c *Core) ask(prompt string, decide func(ctx context.Context, allow bool) string) string {
+	return c.askIn(c.wa.SelfChat(), prompt, decide)
+}
+
+// askIn posts prompt in chat and runs decide with the owner's answer. decide returns the line to
+// post afterwards. It returns the code to answer with.
+func (c *Core) askIn(chat, prompt string, decide func(ctx context.Context, allow bool) string) string {
 	c.mu.Lock()
 	code := c.newCode()
-	c.pending[code] = &pending{code: code, decide: decide}
+	c.pending[code] = &pending{code: code, chat: chat, decide: decide}
 	c.mu.Unlock()
-	c.say(fmt.Sprintf("%s\nReply \"yes %s\" or \"no %s\".", prompt, code, code))
+	c.sayIn(chat, fmt.Sprintf("%s\nReply \"yes %s\" or \"no %s\".", prompt, code, code))
 	return code
+}
+
+// sayIn posts a WhatsAgent line in chat.
+func (c *Core) sayIn(chat, text string) {
+	if chat == c.wa.SelfChat() {
+		c.say(text)
+		return
+	}
+	go func() {
+		if _, err := c.sendText(c.ctx, chat, prefixWhatsAgent+text); err != nil {
+			c.log.Warn("send a WhatsAgent message", "chat", chat, "err", err)
+		}
+	}()
 }
 
 // close removes the question with code and returns it, or nil when none waits.
@@ -74,23 +96,42 @@ func (c *Core) close(code string) *pending {
 	return p
 }
 
-// answer applies the owner's answer to the question with code.
-func (c *Core) answer(ctx context.Context, code string, allow bool) {
-	p := c.close(code)
-	if p == nil {
-		c.say(fmt.Sprintf("Nothing waits for the code %s.", code))
+// verdict reports whether m is the owner's answer to a question that WhatsAgent asked in m's
+// chat.
+func (c *Core) verdict(m model.Message) bool {
+	v := verdictPattern.FindStringSubmatch(m.Text)
+	if v == nil || !m.FromMe {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	p := c.pending[v[2]]
+	return p != nil && p.chat == m.Chat
+}
+
+// answer applies the owner's answer, given in chat, to the question with code.
+func (c *Core) answer(ctx context.Context, chat, code string, allow bool) {
+	c.mu.Lock()
+	p := c.pending[code]
+	c.mu.Unlock()
+	if p == nil || (chat != p.chat && chat != c.wa.SelfChat()) {
+		c.sayIn(chat, fmt.Sprintf("Nothing waits for the code %s here.", code))
+		return
+	}
+	if c.close(code) == nil {
 		return
 	}
 	if line := p.decide(ctx, allow); line != "" {
-		c.say(line)
+		c.sayIn(p.chat, line)
 	}
 }
 
 // Approve asks the owner whether a session may use a tool, and waits for the answer for at most
-// timeout. It is the permission prompt tool of home and the chat agents.
+// timeout. It is the permission prompt tool for sessions that use one.
 func (c *Core) Approve(ctx context.Context, caller Caller, tool, input string, timeout time.Duration) bool {
 	answer := make(chan bool, 1)
-	prompt := fmt.Sprintf("%s wants to use %s:\n%s", caller.Session, tool, clip(input, 1500))
+	prompt := fmt.Sprintf("Approval: the agent session %s wants to use the tool %s with this input:\n%s",
+		caller.Session, tool, clip(input, 1500))
 	code := c.ask(prompt, func(_ context.Context, allow bool) string {
 		answer <- allow
 		return ""
@@ -109,7 +150,13 @@ func (c *Core) Approve(ctx context.Context, caller Caller, tool, input string, t
 // RelayPermission posts a permission prompt that a session's harness raised, and passes the
 // owner's answer back to that session with the harness's own request ID.
 func (c *Core) RelayPermission(caller Caller, requestID, tool, description, preview string) {
-	prompt := fmt.Sprintf("%s wants to use %s: %s\n%s", caller.Session, tool, description, clip(preview, 1500))
+	// The harness reads the tool and the input from the real tool call; the description can be
+	// the agent's own words, so it comes last and says so.
+	prompt := fmt.Sprintf("Approval: the agent session %s wants to use the tool %s with this input:\n%s",
+		caller.Session, tool, clip(preview, 1500))
+	if description = strings.TrimSpace(description); description != "" {
+		prompt += "\nThe agent's own description: " + clip(description, 300)
+	}
 	c.ask(prompt, func(ctx context.Context, allow bool) string {
 		c.mu.Lock()
 		sub := c.subs[caller.Session]

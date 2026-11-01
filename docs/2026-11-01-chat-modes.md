@@ -50,7 +50,15 @@ Agents write only their message. WhatsAgent puts the prefix in front of every me
 
 In the `keyword` mode, the handler sees only the owner's messages that name the agent or answer an agent message, and it can respond only to those. It cannot read any other message of the chat, not even an answer from another person to its own question. A conversation with other people needs the `window` or the `all` mode.
 
-The mode also decides whether the handler may write to the chat without asking the owner. In the `keyword` and `all` modes it may. In the `window` mode it may only while a window is open, and in the `off` mode it may not. Send rules (`/allow`, `/ask`, `/deny`) still override this default, as before. A send rule decides only whether a session may write to a chat. Reading a chat needs the handler role.
+The mode also limits where the handler may write without asking the owner; the "Answers and actions" section below has the full rule. In the `keyword` and `all` modes the mode allows it. In the `window` mode it allows it only while a window is open, and in the `off` mode never. Send rules (`/allow`, `/ask`, `/deny`) still override this default, as before. A send rule decides only whether a session may write to a chat. Reading a chat needs the handler role.
+
+## Answers and actions
+
+An agent answers without asking only in a conversation: a chat that it handles, whose mode lets it see the chat, and that sent it a message in the last 15 minutes. Any other message from an agent is an action on the owner's behalf, and waits for the owner's yes. That covers a message to a chat the agent does not handle, to a chat it handles that has been quiet, and a reaction in such a chat. Home is no exception: it answers in the self-chat, and asks before it writes anywhere else. The self-chat and the owner's own `/allow` rules stay as they are.
+
+WhatsAgent asks in the chat where the owner last wrote to that agent in the last 15 minutes, so a request that the owner makes in a group is approved in that group; otherwise it asks in the self-chat. `/approvals self` makes it always ask in the self-chat, for an owner who does not want a draft for one chat shown in another; `/approvals here` restores the default. The owner answers with `yes 42` or `no 42` in the chat where WhatsAgent asked, or in the self-chat. Another person's answer counts for nothing, and so does an answer in an unrelated chat. The answer itself is never passed to an agent.
+
+WhatsAgent writes each question itself, from the real arguments of the action: the agent's session, the kind of action, the target chat with its kind (group, direct chat or channel), and the exact text that will go out, prefix included. A prompt-injected agent can still try to send something harmful, but it cannot make the question describe something else. For tool approvals that Claude Code or Codex relay, the question shows the tool and its real input first; a description or reason that the agent wrote itself comes last and is labeled as the agent's own words. WhatsAgent's questions start with ⚙️, and an agent's message that would start with ⚙️ is refused, so an agent cannot fake a question even with the prefix turned off.
 
 ## Window mode
 

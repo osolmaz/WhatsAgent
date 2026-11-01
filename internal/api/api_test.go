@@ -144,7 +144,7 @@ func TestSessionStreamToolsAndPermission(t *testing.T) {
 	if err := c.Permission(ctx, api.PermissionRequest{Token: token, RequestID: "qwert", ToolName: "Bash", Description: "list"}); err != nil {
 		t.Fatal(err)
 	}
-	d.Receive(testkit.SelfChat, "yes "+codeOf(t, d.Expect("dev wants to use Bash")), true)
+	d.Receive(testkit.SelfChat, "yes "+codeOf(t, d.Expect("session dev wants to use the tool Bash")), true)
 	if f := next(t, frames, "verdict"); f.RequestID != "qwert" || !f.Allow {
 		t.Errorf("verdict frame = %+v", f)
 	}
@@ -161,7 +161,7 @@ func TestSessionStreamToolsAndPermission(t *testing.T) {
 		}
 		approved <- string(raw)
 	}()
-	code := codeOf(t, d.Expect("dev wants to use Write"))
+	code := codeOf(t, d.Expect("session dev wants to use the tool Write"))
 	d.Receive(testkit.SelfChat, "no "+code, true)
 	if got := <-approved; !strings.Contains(got, `"behavior":"deny"`) {
 		t.Errorf("approve = %s", got)
@@ -170,7 +170,7 @@ func TestSessionStreamToolsAndPermission(t *testing.T) {
 		raw, _ := c.ToolRaw(ctx, token, "approve", map[string]any{"tool_name": "Read"})
 		approved <- string(raw)
 	}()
-	code = codeOf(t, d.Expect("dev wants to use Read"))
+	code = codeOf(t, d.Expect("session dev wants to use the tool Read"))
 	d.Receive(testkit.SelfChat, "yes "+code, true)
 	if got := <-approved; !strings.Contains(got, `"behavior":"allow"`) || !strings.Contains(got, `"updatedInput":{}`) {
 		t.Errorf("approve = %s", got)

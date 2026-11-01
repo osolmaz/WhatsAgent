@@ -71,6 +71,7 @@ func TestAgentNameAndPrefix(t *testing.T) {
 
 	// A route's own prefix wins for that chat.
 	_, _ = h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "bot", Prefix: "[{name}/{session}]"}, model.ModeAll)
+	h.converse("bot", "g@g.us", model.RoleOther)
 	_, _ = h.core.Send(ctx, Caller{Session: "bot"}, "Team", "routed")
 	h.expectText("[Bob/bot] routed")
 

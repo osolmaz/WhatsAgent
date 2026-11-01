@@ -147,17 +147,21 @@ func (a *Adapter) request(ctx context.Context, method string, params json.RawMes
 	return map[string]string{"decision": decision}, nil
 }
 
-// describe shows the useful fields of an approval request.
+// describe shows the useful fields of an approval request: first the facts of the request, then
+// the reason, which the agent writes itself and which is labeled as its own words.
 func describe(params json.RawMessage) string {
 	var p map[string]any
 	if json.Unmarshal(params, &p) != nil {
 		return string(params)
 	}
 	var parts []string
-	for _, key := range []string{"command", "cwd", "reason", "grantRoot"} {
+	for _, key := range []string{"command", "cwd", "grantRoot"} {
 		if v, ok := p[key]; ok && v != nil {
 			parts = append(parts, fmt.Sprintf("%s: %v", key, v))
 		}
+	}
+	if reason, ok := p["reason"]; ok && reason != nil {
+		parts = append(parts, fmt.Sprintf("The agent's own reason: %v", reason))
 	}
 	if len(parts) == 0 {
 		return string(params)

@@ -185,16 +185,6 @@ func (c *Core) agentPost(name, chat, text string) {
 	}
 }
 
-// lastActive is when session last got messages, or since when it runs.
-func (c *Core) lastActive(session string, since time.Time) time.Time {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if t := c.delivered[session]; t.After(since) {
-		return t
-	}
-	return since
-}
-
 // dropAgent stops a chat agent and forgets it.
 func (c *Core) dropAgent(name string, agent *chatAgent) {
 	c.mu.Lock()

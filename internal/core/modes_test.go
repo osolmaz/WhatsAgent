@@ -123,7 +123,10 @@ func TestWindowModeWithChatAgent(t *testing.T) {
 		t.Errorf("read after the window = %q", texts(read.Messages))
 	}
 	agent.host.Post("one more thing")
-	h.expectCode("chat-team wants to send to Team")
+	// The owner last wrote to the agent in the chat itself, so WhatsAgent asks there.
+	if asked := h.expect("session chat-team wants to send this message to \"Team\" (group)"); asked.chat != "g@g.us" {
+		t.Errorf("asked in %s", asked.chat)
+	}
 }
 
 func TestWindowEndsAtItsTime(t *testing.T) {
