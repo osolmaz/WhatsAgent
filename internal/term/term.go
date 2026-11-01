@@ -25,8 +25,10 @@ const (
 	busyFor = 2 * time.Second
 	// answerWindow is how much recent output the startup answers are matched against.
 	answerWindow = 8 * 1024
-	defaultCols  = 120
-	defaultRows  = 40
+	// answerDelay is how long an answer waits after its question appears.
+	answerDelay = 500 * time.Millisecond
+	defaultCols = 120
+	defaultRows = 40
 )
 
 // Answer types Keys into a session once, the first time its output contains Prompt. It
@@ -166,14 +168,16 @@ func (s *session) write(p []byte) {
 	}
 }
 
-// answer types each startup answer whose prompt appeared. The caller holds s.mu.
+// answer types each startup answer whose prompt appeared, after answerDelay, because an interface
+// can draw a question before it reads keys. The caller holds s.mu.
 func (s *session) answer() {
 	text := squash(string(s.recent))
 	for i, a := range s.spec.Answers {
 		if !s.answered[i] && strings.Contains(text, squash(a.Prompt)) {
 			s.answered[i] = true
 			s.recent = nil
-			_, _ = s.pty.WriteString(a.Keys)
+			keys := a.Keys
+			time.AfterFunc(answerDelay, func() { _, _ = s.pty.WriteString(keys) })
 			return
 		}
 	}

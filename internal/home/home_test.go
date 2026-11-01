@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -32,11 +33,17 @@ func fakeClaude() {
 	fmt.Fprintln(f, strings.Join(args, "\n")+"\n--")
 	f.Close()
 	in := bufio.NewReader(os.Stdin)
-	for _, question := range []string{"\x1b[1mI am\x1b[0m using this for local\x1b[1Cdevelopment", "Yes, I trust this folder"} {
-		fmt.Println(question)
-		// The terminal is in cooked mode here, so the Enter key's \r arrives as \n.
-		if b, err := in.ReadByte(); err != nil || (b != '\r' && b != '\n') {
-			fmt.Println("bad answer")
+	// Like claude, the trust question comes first with "No, exit" selected, so the answer is the
+	// Down key and Enter. The terminal is in cooked mode here, so Enter's \r arrives as \n.
+	questions := []struct{ text, keys string }{
+		{"Quick safety check\n❯ No, exit\n  Yes, I trust this folder", "\x1b[B\n"},
+		{"\x1b[1mI am\x1b[0m using this for local\x1b[1Cdevelopment", "\n"},
+	}
+	for _, q := range questions {
+		fmt.Println(q.text)
+		got := make([]byte, len(q.keys))
+		if _, err := io.ReadFull(in, got); err != nil || string(got) != q.keys {
+			fmt.Printf("bad answer %q\n", got)
 			os.Exit(1)
 		}
 	}

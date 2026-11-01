@@ -107,11 +107,13 @@ type ClaudeOptions struct {
 	Restart time.Duration
 }
 
-// answers are the startup questions that Claude Code asks before an agent can work: the warning
-// for a channel under development, and the trust question for the agent's own folder.
+// answers are the startup questions that Claude Code asks before an agent can work: the trust
+// question for the agent's own folder, whose first option is "No, exit", so the answer moves
+// down to "Yes, I trust this folder"; and the warning for a channel under development, whose
+// first option is "I am using this for local development".
 var answers = []term.Answer{
+	{Prompt: "Yes, I trust this folder", Keys: "\x1b[B\r"},
 	{Prompt: "I am using this for local development", Keys: "\r"},
-	{Prompt: "Yes, I trust this folder", Keys: "\r"},
 }
 
 // StartClaude starts an agent as an interactive Claude Code session in a terminal, and starts it
