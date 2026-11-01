@@ -32,7 +32,7 @@ func init() {
 		{"unroute", "/unroute <chat>", "Give a chat back to its own agent, in the mode of every chat.", true, cmdUnroute},
 		{"mode", "/mode [<chat> off|keyword|window|all [<length> [<lookback>]]]", "Show the chat modes, or set what " +
 			"agents see of a chat. <chat> can be *.", true, cmdMode},
-		{"window", "/window [length|lookback|stop|start|end <value>|close <chat>]", "Show or change the window " +
+		{"window", "/window [length|lookback|wake|stop|start|end <value>|close <chat>]", "Show or change the window " +
 			"settings, or close a chat's window.", true, cmdWindow},
 		{"routes", "/routes", "List the routes.", false, cmdRoutes},
 		{"rename", "/rename <session> <name>", "Give a session a new name.", true, cmdRename},

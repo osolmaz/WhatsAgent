@@ -9,7 +9,7 @@ tags: [spec, modes, windows, triggers, prefix, chat-agents]
 
 ## TL;DR
 
-Each chat has a mode that decides what an agent receives from it and may read in it: `off`, `keyword`, `window` or `all`. The default for every chat is `window`. In that mode the agent sees nothing until the owner names it, for example "Bob, what do you think?". That message gives the agent one hour of access, including the 30 minutes before the message. Naming it again extends access by one hour, "Bob stop watching" ends it, and the agent says when it starts and when it is done. Only the owner's own messages can call the agent, and each chat without a route gets its own agent, which can only read what the chat's mode shows it.
+Each chat has a mode that decides what an agent receives from it and may read in it: `off`, `keyword`, `window` or `all`. The default for every chat is `window`. In that mode the agent sees nothing until the owner names it with a wake phrase, for example "Bob, wake up" or "Bob start"; the name alone does nothing. That message gives the agent one hour of access, including the 30 minutes before the message. Naming it again extends access by one hour, "Bob stop watching" ends it, and the agent says when it starts and when it is done. Only the owner's own messages can call the agent, and each chat without a route gets its own agent, which can only read what the chat's mode shows it.
 
 ## Introduction
 
@@ -22,6 +22,8 @@ The idea behind the design is that the owner can give an agent temporary access 
 - **Agent name**: the name that the owner gives the agents with `/name`, such as Bob. The default is "Agent".
 - **Trigger word**: the agent name. The owner sets one word for both.
 - **Trigger**: a message that the owner typed on their phone, in any chat other than the self-chat, that contains the agent name as a whole word in any case ("Bob", "bob,", "@Bob", but not "Bobby"), or that answers a message an agent sent. Messages from other people are never triggers. Messages that an agent or the CLI sent are never triggers either.
+- **Wake phrase**: a phrase that, together with the agent name in a trigger, opens a window. The defaults are "start", "wake up", "monitor", "watch" and "turn on".
+- **Stop phrase**: a phrase that, together with the agent name in a trigger, ends a window. The defaults are "stop watching", "stop monitoring" and "turn off".
 - **Handler**: the session that handles a chat. It is the session of the chat's route, else the session of the route for every chat (`*`), else the chat's own agent.
 - **Chat agent**: an agent that WhatsAgent runs for one chat that has no route. Its session is named `chat-<chat name>`, such as `chat-team`.
 - **Window**: a time span in which the handler of a chat in the window mode receives the chat's new messages and may read its recent messages.
@@ -54,7 +56,7 @@ The mode also decides whether the handler may write to the chat without asking t
 
 ### Opening
 
-A trigger in a chat whose mode is `window` opens the chat's window, when none is open. The window starts at the lookback before the trigger and ends at the window length after it. The defaults are a lookback of 30 minutes and a length of 1 hour. While the window is open, the handler receives every new message of the chat and may browse everything from the window's start on with `read_chat` and `search`. The handler does not receive the lookback messages as pushes. They only become readable, so the agent can read them when it needs the context.
+A trigger with a wake phrase in a chat whose mode is `window` opens the chat's window, when none is open: "Bob start", "bob wake up" and "Bob, monitor this" all open it. A trigger without a wake phrase opens nothing, so mentioning the agent in passing, or writing to a person who happens to share its name, does not give it access. The window starts at the lookback before the trigger and ends at the window length after it. The defaults are a lookback of 30 minutes and a length of 1 hour. While the window is open, the handler receives every new message of the chat and may browse everything from the window's start on with `read_chat` and `search`. The handler does not receive the lookback messages as pushes. They only become readable, so the agent can read them when it needs the context.
 
 When the window opens, WhatsAgent sends a start message to the chat, with the handler's prefix. By default it says how long the window lasts, how far back the agent can read, that naming the agent extends the window, and how to end it:
 
@@ -62,7 +64,7 @@ When the window opens, WhatsAgent sends a start message to the chat, with the ha
 
 ### Extending
 
-Each later trigger while the window is open moves the window's end to the window length after that trigger, and never earlier than the current end. The start stays where it was, so the agent keeps the same lookback. Extending sends no message, and the agent receives the trigger like any other message.
+Each later trigger while the window is open, with or without a wake phrase, moves the window's end to the window length after that trigger, and never earlier than the current end. The start stays where it was, so the agent keeps the same lookback. Extending sends no message, and the agent receives the trigger like any other message.
 
 ### Ending
 
@@ -84,6 +86,7 @@ Switching a chat to another mode removes its open window without an end message,
 | --- | --- |
 | `/window length <duration>` | How long a window lasts after each trigger. The default is 1 hour. |
 | `/window lookback <duration>` | How far back a new window starts. The default is 30 minutes; 5m, 10m, 1h or 1d also work. |
+| `/window wake <phrase>, <phrase>, ...` | The wake phrases. The defaults are "start", "wake up", "monitor", "watch" and "turn on". |
 | `/window stop <phrase>, <phrase>, ...` | The stop phrases. The defaults are "stop watching", "stop monitoring" and "turn off". |
 | `/window start <text>` | The start message. `{name}`, `{length}`, `{lookback}` and `{until}` are filled in. |
 | `/window end <text>` | The end message, with the same placeholders. |
@@ -113,7 +116,7 @@ These guarantees bind sessions through their WhatsAgent tools. The owner, the `w
 
 ## Risks
 
-The agent name is the trigger word, and a common name such as Bob is also the name of real people. When the owner writes "Hey Bob!" to a friend called Bob, that opens a window in the chat with the friend, and the start message goes out there. A chat where that can happen should get `/mode <chat> off`. An owner who prefers to opt chats in one by one can set `/mode * off` and then `/mode <chat> window` for each chat where the agent may help.
+The agent name is the trigger word, and a common name such as Bob is also the name of real people. Because a window opens only for a wake phrase, "Hey Bob!" to a friend called Bob opens nothing, but "Bob, start the car" would. In an open window every mention extends it, so a chat with a real Bob in it keeps its window open for as long as people talk to him. A chat where that can happen should get `/mode <chat> off`. An owner who prefers to opt chats in one by one can set `/mode * off` and then `/mode <chat> window` for each chat where the agent may help.
 
 ## Migration
 

@@ -11,16 +11,19 @@ import (
 // A chat's mode decides what the session that handles it receives and may read; see the
 // "Chat modes" specification in docs. A trigger is a message that the owner typed in a chat
 // other than the self-chat that names the agents or answers an agent message. In the window
-// mode, a trigger opens or extends the chat's window, and a trigger with a stop phrase closes it.
+// mode, a trigger with a wake phrase opens the chat's window, any trigger extends an open window,
+// and a trigger with a stop phrase closes it.
 const (
 	everyChat       = "*"
 	settingLength   = "window.length"
 	settingLookback = "window.lookback"
+	settingWake     = "window.wake"
 	settingStop     = "window.stop"
 	settingStart    = "window.start"
 	settingEnd      = "window.end"
 	defaultLength   = time.Hour
 	defaultLookback = 30 * time.Minute
+	defaultWake     = "start, wake up, monitor, watch, turn on"
 	defaultStop     = "stop watching, stop monitoring, turn off"
 	defaultStart    = "Now monitoring this chat until {until}. I can read the messages of the last {lookback} " +
 		"and everything new. Mention {name} to extend it by {length}, or say \"{name} stop watching\" to end it."
@@ -142,10 +145,11 @@ func (c *Core) trigger(ctx context.Context, m model.Message) bool {
 	return m.ReplyTo != "" && sent
 }
 
-// stopPhrases returns the phrases that close a window when a trigger contains one.
-func (c *Core) stopPhrases(ctx context.Context) []string {
+// phrases returns the comma-separated phrases of a setting: the wake phrases that open a window,
+// or the stop phrases that close it.
+func (c *Core) phrases(ctx context.Context, key, fallback string) []string {
 	var phrases []string
-	for _, p := range strings.Split(c.setting(ctx, settingStop, defaultStop), ",") {
+	for _, p := range strings.Split(c.setting(ctx, key, fallback), ",") {
 		if p = strings.TrimSpace(p); p != "" {
 			phrases = append(phrases, p)
 		}
@@ -153,8 +157,9 @@ func (c *Core) stopPhrases(ctx context.Context) []string {
 	return phrases
 }
 
-func (c *Core) stopping(ctx context.Context, text string) bool {
-	for _, phrase := range c.stopPhrases(ctx) {
+// says reports whether text contains one of the phrases of a setting, as whole words.
+func (c *Core) says(ctx context.Context, text, key, fallback string) bool {
+	for _, phrase := range c.phrases(ctx, key, fallback) {
 		if mentions(text, phrase) {
 			return true
 		}
@@ -162,22 +167,28 @@ func (c *Core) stopping(ctx context.Context, text string) bool {
 	return false
 }
 
-// runTrigger runs the window mode for a new live message that is a trigger: it opens or extends
-// the chat's window, or closes it for a stop phrase. A message that is already stored, which
-// WhatsApp can send twice, runs nothing.
+// runTrigger runs the window mode for a new live message that is a trigger: a stop phrase closes
+// the chat's window, any trigger extends an open window, and a wake phrase opens a closed one. A
+// message that is already stored, which WhatsApp can send twice, runs nothing.
 func (c *Core) runTrigger(ctx context.Context, m model.Message) {
 	if !c.trigger(ctx, m) {
 		return
 	}
 	mode := c.chatMode(ctx, m.Chat)
-	if _, stored, err := c.st.Message(ctx, m.Chat, m.ID); mode.Mode != model.ModeWindow || err != nil || stored {
+	if _, stored, err := c.st.Message(ctx, m.Chat, m.ID); mode.Mode == model.ModeWindow && err == nil && !stored {
+		c.moveWindow(ctx, mode, m.Text)
+	}
+}
+
+// moveWindow closes, extends or opens the chat's window for a trigger with text.
+func (c *Core) moveWindow(ctx context.Context, mode model.ChatMode, text string) {
+	if c.says(ctx, text, settingStop, defaultStop) {
+		c.closeWindow(ctx, mode.Chat)
 		return
 	}
-	if c.stopping(ctx, m.Text) {
-		c.closeWindow(ctx, m.Chat)
-		return
+	if _, open, err := c.st.Window(ctx, mode.Chat); err == nil && (open || c.says(ctx, text, settingWake, defaultWake)) {
+		c.openWindow(ctx, mode)
 	}
-	c.openWindow(ctx, mode)
 }
 
 // openWindow opens the chat's window, or moves its end to the window length from now.

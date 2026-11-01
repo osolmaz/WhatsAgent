@@ -120,6 +120,7 @@ type windowSetting struct {
 var windowSettings = map[string]windowSetting{
 	"length":   {settingLength, "1h", true},
 	"lookback": {settingLookback, "30m", true},
+	"wake":     {settingWake, defaultWake, false},
 	"stop":     {settingStop, defaultStop, false},
 	"start":    {settingStart, defaultStart, false},
 	"end":      {settingEnd, defaultEnd, false},
@@ -134,7 +135,7 @@ func cmdWindow(ctx context.Context, c *Core, args string) (string, error) {
 	if name != "" {
 		s, ok := windowSettings[name]
 		if !ok || value == "" {
-			return "", errors.New("use /window, /window length|lookback|stop|start|end <value>, or /window close <chat>")
+			return "", errors.New("use /window, /window length|lookback|wake|stop|start|end <value>, or /window close <chat>")
 		}
 		if err := c.setWindowSetting(ctx, s, value); err != nil {
 			return "", err
@@ -167,10 +168,11 @@ func (c *Core) closeWindowCommand(ctx context.Context, ref string) (string, erro
 
 func (c *Core) windowText(ctx context.Context) (string, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Window length: %s\nLookback: %s\nStop phrases: %s\nStart message: %s\nEnd message: %s",
+	fmt.Fprintf(&b, "Window length: %s\nLookback: %s\nWake phrases: %s\nStop phrases: %s\nStart message: %s\nEnd message: %s",
 		model.FormatDuration(c.duration(ctx, settingLength, defaultLength)),
 		model.FormatDuration(c.duration(ctx, settingLookback, defaultLookback)),
-		strings.Join(c.stopPhrases(ctx), ", "), c.setting(ctx, settingStart, defaultStart),
+		strings.Join(c.phrases(ctx, settingWake, defaultWake), ", "),
+		strings.Join(c.phrases(ctx, settingStop, defaultStop), ", "), c.setting(ctx, settingStart, defaultStart),
 		c.setting(ctx, settingEnd, defaultEnd))
 	windows, err := c.windowLines(ctx)
 	for _, w := range windows {

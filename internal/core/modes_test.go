@@ -59,15 +59,21 @@ func TestWindowModeWithChatAgent(t *testing.T) {
 		t.Fatal("a message from someone else opened a window")
 	}
 
-	// The owner names the agents: the window opens, says so, and the chat's agent gets the message.
+	// Naming the agents is not enough to open a window; a wake phrase is.
 	h.receive("g@g.us", "Bob, what do you think?", true)
+	if _, open, _ := h.st.Window(ctx, "g@g.us"); open {
+		t.Fatal("the name alone opened a window")
+	}
+
+	// The window opens, says so, and the chat's agent gets the message.
+	h.receive("g@g.us", "bob wake up, what do you think?", true)
 	start := h.expect("Now monitoring this chat until")
 	if start.chat != "g@g.us" || !strings.HasPrefix(start.text, "🤖 *Bob*: Now monitoring") ||
 		!strings.Contains(start.text, "the last 30 minutes") || !strings.Contains(start.text, "extend it by 1 hour") {
 		t.Errorf("start message = %+v", start)
 	}
 	agent := h.agent("chat-team")
-	if got := events(t, agent.fakePusher); len(got) != 1 || got[0].Message.Text != "Bob, what do you think?" {
+	if got := events(t, agent.fakePusher); len(got) != 1 || got[0].Message.Text != "bob wake up, what do you think?" {
 		t.Fatalf("the agent got %+v", got)
 	}
 	if agent.host.Chat != "g@g.us" || agent.host.ChatName != "Team" || agent.host.Name != "Bob" {
@@ -76,7 +82,8 @@ func TestWindowModeWithChatAgent(t *testing.T) {
 	me := Caller{Session: "chat-team"}
 	h.stored("g@g.us", start.id)
 	read, err := h.core.ReadChat(ctx, me, "g@g.us", 0)
-	if err != nil || texts(read.Messages) != "said before|Bob, someone else may not open it|Bob, what do you think?|"+start.text {
+	if err != nil || texts(read.Messages) != "said before|Bob, someone else may not open it|Bob, what do you think?|"+
+		"bob wake up, what do you think?|"+start.text {
 		t.Errorf("window read = %q, %v", texts(read.Messages), err)
 	}
 	if _, err := h.core.ReadChat(ctx, me, "self", 5); !errors.Is(err, ErrNotAllowed) {
@@ -126,7 +133,7 @@ func TestWindowEndsAtItsTime(t *testing.T) {
 	if out, _ := h.core.Run(ctx, Owner, "/window close Team"); out != "Team has no open window." {
 		t.Errorf("/window close without a window = %q", out)
 	}
-	h.receive("g@g.us", "Agent, look", true)
+	h.receive("g@g.us", "Agent start", true)
 	h.expect("Now monitoring")
 	if out, _ := h.core.Run(ctx, Owner, "/status"); !strings.Contains(out, "Open window: Team, until") {
 		t.Errorf("/status = %q", out)
@@ -139,7 +146,7 @@ func TestWindowEndsAtItsTime(t *testing.T) {
 		t.Fatal("the window outlived its end")
 	}
 
-	h.receive("g@g.us", "Agent, again", true)
+	h.receive("g@g.us", "agent, monitor this again", true)
 	h.expect("Now monitoring")
 	if out, _ := h.core.Run(ctx, Owner, "/window close Team"); out != "Closed the window of Team." {
 		t.Errorf("/window close = %q", out)
@@ -241,17 +248,19 @@ func TestModeAndWindowCommands(t *testing.T) {
 	}
 	run("/window length 2h")
 	run("/window lookback 10m")
+	run("/window wake go, begin")
 	run("/window stop halt, cease")
 	run("/window start Watching for {length}.")
 	out := run("/window end Bye from {name}.")
-	for _, want := range []string{"Window length: 2 hours", "Lookback: 10 minutes", "Stop phrases: halt, cease",
-		"Start message: Watching for {length}.", "End message: Bye from {name}."} {
+	for _, want := range []string{"Window length: 2 hours", "Lookback: 10 minutes", "Wake phrases: go, begin",
+		"Stop phrases: halt, cease", "Start message: Watching for {length}.", "End message: Bye from {name}."} {
 		if !strings.Contains(out, want) {
 			t.Errorf("/window = %q, want %q", out, want)
 		}
 	}
 	run("/mode * window")
-	h.receive("g@g.us", "Agent, look", true)
+	h.receive("g@g.us", "Agent start", true)
+	h.receive("g@g.us", "Agent, go", true)
 	h.expectText("🤖 *Agent*: Watching for 2 hours.")
 	if w, _, _ := h.st.Window(ctx, "g@g.us"); w.Until.Sub(w.Opened) != 2*time.Hour || w.Opened.Sub(w.From) != 24*time.Hour {
 		t.Errorf("the chat's own lengths were not used: %+v", w)
@@ -262,7 +271,7 @@ func TestModeAndWindowCommands(t *testing.T) {
 	if out := run("/window"); !strings.Contains(out, "Start message: Now monitoring") {
 		t.Errorf("/window start default = %q", out)
 	}
-	h.receive("g@g.us", "Agent, once more", true)
+	h.receive("g@g.us", "Agent, begin once more", true)
 	h.expect("Now monitoring")
 	if out := run("/mode Team <> Sam all"); out != "Team <> Sam: all." {
 		t.Errorf("/mode all = %q", out)
