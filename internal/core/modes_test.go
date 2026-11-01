@@ -181,7 +181,8 @@ func TestKeywordAndOffModes(t *testing.T) {
 	}
 	answer := h.expect("The numbers are right.")
 	// The owner's reply to an agent message is a trigger too.
-	reply := model.Message{Chat: "g@g.us", ID: "R1", Time: time.Now().UTC(), FromMe: true, Text: "and the dates?", ReplyTo: answer.id}
+	// A second later, so the reply sorts after the answer even on a fast machine.
+	reply := model.Message{Chat: "g@g.us", ID: "R1", Time: time.Now().UTC().Add(time.Second), FromMe: true, Text: "and the dates?", ReplyTo: answer.id}
 	h.core.OnUpdate(model.Update{Kind: model.New, Message: reply}, true)
 	if got := events(t, p); got[0].Message.Text != "and the dates?" {
 		t.Fatalf("reply pushed %+v", got)
