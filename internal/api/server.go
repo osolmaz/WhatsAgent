@@ -33,6 +33,9 @@ type ToolRequest struct {
 	Token string          `json:"token,omitempty"`
 	Tool  string          `json:"tool"`
 	Args  json.RawMessage `json:"args,omitempty"`
+	// As names the agent session that an owner call acts for, so that its sends get the agent
+	// prefix. Only /v1/owner reads it.
+	As string `json:"as,omitempty"`
 }
 
 // ToolResponse is the answer to a tool call.
@@ -175,7 +178,11 @@ func (s *Server) owner(w http.ResponseWriter, r *http.Request) {
 		reply(w, nil, err)
 		return
 	}
-	s.run(w, r.Context(), core.Owner, req)
+	caller := core.Owner
+	if req.As != "" {
+		caller = core.As(req.As)
+	}
+	s.run(w, r.Context(), caller, req)
 }
 
 func (s *Server) run(w http.ResponseWriter, ctx context.Context, caller core.Caller, req ToolRequest) {

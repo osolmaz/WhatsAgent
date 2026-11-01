@@ -37,7 +37,7 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "send",
-		"description": "Send a text message to a WhatsApp chat. The owner's send rules decide whether it goes out at once, waits for the owner's yes, or is refused; the result says which.",
+		"description": "Send a text message to a WhatsApp chat. WhatsAgent puts the agent prefix, such as the agents' name, in front of it, so write only the message. The owner's send rules decide whether it goes out at once, waits for the owner's yes, or is refused; the result says which.",
 		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "text": str("The message text.")}, "chat", "text"),
 	},
 	{
@@ -59,7 +59,7 @@ var toolList = []map[string]any{
 		"description": "Ask the owner to route a WhatsApp chat to this session, so its new messages come here. The owner confirms in WhatsApp.",
 		"inputSchema": schema(map[string]any{
 			"chat":      str(chatHelp),
-			"prefix":    str("Optional text added in front of every message this session sends to the chat."),
+			"prefix":    str("Optional prefix for this chat in place of the owner's /prefix. {name} and {session} are filled in."),
 			"addressed": map[string]any{"type": "boolean", "description": "Only push messages that name the agent or answer its messages."},
 		}, "chat"),
 	},

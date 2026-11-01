@@ -36,6 +36,10 @@ func init() {
 		{"ask", "/ask <session> <chat>", "Make a session's sends to a chat wait for your yes.", true, ruleCommand(model.Ask)},
 		{"deny", "/deny <session> <chat>", "Stop a session from sending to a chat.", true, ruleCommand(model.Deny)},
 		{"rules", "/rules", "List the send rules.", false, cmdRules},
+		{"name", "/name [<name>]", "Show or set the agents' name, which is also their trigger word.", true, cmdName},
+		{"prefix", "/prefix [<text>|off]", "Show or set the text in front of every agent message. " +
+			"{name} and {session} are filled in, \\n is a line break, and WhatsApp formatting such as *bold* works.",
+			true, cmdPrefix},
 	}
 }
 
@@ -99,6 +103,7 @@ func cmdStatus(ctx context.Context, c *Core, _ string) (string, error) {
 		fmt.Fprintf(&b, "\nWaiting: %s", w)
 	}
 	fmt.Fprintf(&b, "\nRoutes: %d, send rules: %d", s.Routes, s.Rules)
+	fmt.Fprintf(&b, "\nAgent name: %s", s.AgentName)
 	return b.String(), nil
 }
 
@@ -113,6 +118,7 @@ type Status struct {
 	Waiting   []string `json:"waiting"`
 	Routes    int      `json:"routes"`
 	Rules     int      `json:"rules"`
+	AgentName string   `json:"agent_name"`
 }
 
 // Status returns a summary of WhatsAgent's state.
@@ -129,9 +135,10 @@ func (c *Core) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	name := c.AgentName(ctx)
 	c.mu.Lock()
 	s := Status{WhatsApp: c.state, SelfChat: c.wa.SelfChat(), OwnerName: c.wa.OwnName(), Home: c.homeOn,
-		Routes: len(routes), Rules: len(rules)}
+		Routes: len(routes), Rules: len(rules), AgentName: name}
 	c.mu.Unlock()
 	for _, info := range sessions {
 		s.addSession(info)

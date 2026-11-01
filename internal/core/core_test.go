@@ -223,9 +223,17 @@ func TestRoutesPushAndAddressed(t *testing.T) {
 	if err := h.st.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "billing-api", Addressed: true}); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := h.core.Run(ctx, Owner, "/name Bob"); err != nil {
+		t.Fatal(err)
+	}
 	h.receive("g@g.us", "chatter", false)
-	h.receive("g@g.us", "Claude, look", false)
-	if got := events(t, p); got[0].Message.Text != "Claude, look" {
+	h.receive("g@g.us", "Bobby is not the agent", false)
+	h.receive("g@g.us", "hey BOB, look", false)
+	if got := events(t, p); got[0].Message.Text != "hey BOB, look" {
+		t.Fatalf("addressed route pushed %+v", got)
+	}
+	h.receive("g@g.us", "billing-api: and this", false)
+	if got := events(t, p); got[0].Message.Text != "billing-api: and this" {
 		t.Fatalf("addressed route pushed %+v", got)
 	}
 
@@ -341,7 +349,7 @@ func TestSendRulesAndApprovals(t *testing.T) {
 		t.Errorf("sent %+v", s)
 	}
 	_, _ = h.core.Send(ctx, bot, "self", "done")
-	h.expect("🤖 bot: done")
+	h.expect("🤖 *Agent*: done")
 
 	out, err := h.core.Send(ctx, bot, "Sam", "hello Sam")
 	if err != nil || !strings.Contains(out, "waiting for the owner") {

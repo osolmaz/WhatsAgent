@@ -86,7 +86,7 @@ Commands start with `/`. WhatsAgent answers them at once without calling a model
 
 Plain text goes to home, and home replies in the self-chat.
 
-Status lines come from WhatsAgent itself. The first one is a welcome message when the account links. After that, WhatsAgent posts a line whenever its state changes, for example when it starts or when a session with a route goes online or offline. Every Claude Code session loads the WhatsAgent MCP server, so sessions without a route get no status line. Lines that arrive within a few seconds are merged into one message so the chat stays readable. WhatsAgent's lines start with ⚙️ and home's replies with 🏠, and a session that sends to the self-chat gets "🤖 <session>:" in front.
+Status lines come from WhatsAgent itself. The first one is a welcome message when the account links. After that, WhatsAgent posts a line whenever its state changes, for example when it starts or when a session with a route goes online or offline. Every Claude Code session loads the WhatsAgent MCP server, so sessions without a route get no status line. Lines that arrive within a few seconds are merged into one message so the chat stays readable. WhatsAgent's lines start with ⚙️ and home's replies with 🏠, and a session's messages carry the agent prefix described under "Routes".
 
 Approval prompts are the fourth kind. When a session needs approval for a tool call, its adapter can relay the prompt to the self-chat. The owner then answers with `yes abcde` or `no abcde`. The "Adapters" section says how each harness supports this.
 
@@ -110,7 +110,9 @@ Routes point at session names, so a route survives when its session restarts. A 
 
 By default, only the self-chat reaches an agent, through home. WhatsAgent stores every other chat, and home can read them when asked ("what did Sam say today?"), but no session gets them pushed.
 
-A route links one chat to one session. Each chat has at most one route, so it is always clear which session answers it. Owners who want everything in one place can send every chat to home with `/route * home`. A route can deliver every message or only the messages addressed to the agent, meaning messages that name the agent or reply to an agent message. It can also set a reply prefix and choose whether the session may reply or only read.
+A route links one chat to one session. Each chat has at most one route, so it is always clear which session answers it. Owners who want everything in one place can send every chat to home with `/route * home`. A route can deliver every message or only the messages addressed to the agent, meaning messages that contain the agents' name or the session's name as a word, or reply to an agent message. It can also set its own prefix and choose whether the session may reply or only read.
+
+The owner names the agents with `/name`, and the name doubles as their trigger word. Agents write only the message itself. WhatsAgent puts the agent prefix in front of every message that a session sends, through the MCP `send` tool or through `whatsagent send --session <name>`, so no skill or prompt has to tell an agent how to sign. The owner sets the prefix with `/prefix` as any text: `{name}` and `{session}` are filled in, `\n` becomes a line break, and WhatsApp formatting such as `*bold*` passes through. The default is `🤖 *{name}*:`, a route's own prefix wins for its chat, and `/prefix off` turns the prefix off. Text that already starts with the prefix is not prefixed twice. The owner's own sends, from the phone or from `whatsagent send` without `--session`, go out as written.
 
 The owner can create a route in three ways, and all of them run the same code. The first is the `/route` command. The second is a request to home, such as "send my chat with Sam to the billing-api session". The third is a request inside a session, such as "connect this session to my chat with Sam", which makes the agent call the `route_here` tool.
 
@@ -191,7 +193,7 @@ These rules live in the WhatsAgent daemon, so no prompt can change them.
 
 - Every send goes through the send rules, so a session cannot reach a chat that the rules keep from it.
 - Only the owner's own messages count as instructions. Anyone in a routed group can write text that tries to steer the agent, so every event carries a trust field that marks text from other people as data.
-- WhatsAgent adds each route's reply prefix to every send on that route.
+- WhatsAgent puts the agent prefix in front of every send from a session.
 - Sends are spaced at least 2 seconds apart. whatsmeow is an unofficial client, and WhatsApp can ban numbers that send automated messages.
 - Only the owner's user can open the daemon's socket, and each checked-in session gets its own token.
 

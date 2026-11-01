@@ -81,7 +81,15 @@ func TestOwnerTools(t *testing.T) {
 	if err := c.Tool(ctx, "", "send", api.SendArgs{Chat: "g@g.us", Text: "hi all"}, &text); err != nil || !strings.HasPrefix(text.Text, "sent") {
 		t.Fatalf("send = %+v, %v", text, err)
 	}
-	d.Expect("hi all")
+	if s := d.Expect("hi all"); s.Text != "hi all" {
+		t.Errorf("owner send = %q", s.Text)
+	}
+	if err := c.As("helper").Tool(ctx, "", "send", api.SendArgs{Chat: "g@g.us", Text: "for an agent"}, &text); err != nil {
+		t.Fatal(err)
+	}
+	if s := d.Expect("for an agent"); s.Text != "🤖 *Agent*: for an agent" {
+		t.Errorf("agent send = %q", s.Text)
+	}
 	for tool, args := range map[string]any{
 		"search":         api.SearchArgs{Query: "hello"},
 		"react":          api.MessageArgs{Chat: "g@g.us", MessageID: "M1", Emoji: "👀"},

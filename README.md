@@ -43,12 +43,14 @@ In your WhatsApp "Message Yourself" chat, send `/help` for the commands. The mos
 
 When a session wants to send somewhere its rules do not allow, WhatsAgent asks you in the self-chat, and you answer `yes <code>` or `no <code>`.
 
+Agents write only their message, and WhatsAgent puts a prefix in front of it so people can tell the agent's messages from yours. `/name Bob` names the agents, and the name is also their trigger word: in a chat whose route takes only addressed messages, a message reaches the session when it contains "Bob" as a word or answers an agent's message. `/prefix` sets the prefix as any text, with `{name}` and `{session}` filled in, `\n` for a line break, and WhatsApp formatting such as `*bold*`. For example, `/prefix 🤖 *{name}*:` makes a message read "🤖 **Bob**: On it.", and `/prefix off` turns the prefix off. A route can set its own prefix for one chat.
+
 A session receives its routed messages in one of three ways:
 
 - `whatsagent claude` starts Claude Code with the WhatsAgent channel, so messages arrive in the session directly.
 - Inside any Claude Code session, run `whatsagent watch --session <name> --chat <chat>` with the Monitor tool. Each new message wakes the session.
 - `whatsagent codex` starts the Codex TUI on the Codex app-server daemon, and WhatsAgent starts a turn in its thread for each batch of messages.
 
-Scripts can use the daemon too: `whatsagent send --to <chat> --text <text>`, `react`, `media`, `messages`, `search`, `export` and `changes`. `whatsagent command "/route Sam billing"` runs any self-chat command.
+Scripts can use the daemon too: `whatsagent send --to <chat> --text <text>`, `react`, `media`, `messages`, `search`, `export` and `changes`. A send goes out exactly as written; add `--session <name>` when an agent sends, and WhatsAgent puts the prefix in front. `whatsagent command "/route Sam billing"` runs any self-chat command.
 
 How it works, and what it does not do yet, is in the [plan](docs/2026-10-31-whatsagent-plan.md).

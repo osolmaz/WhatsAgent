@@ -32,11 +32,17 @@ func daemonClient(env paths.Env) (*api.Client, error) {
 
 // ownerTool calls a tool as the owner and decodes the result into out.
 func ownerTool(ctx context.Context, env paths.Env, tool string, args, out any) error {
+	return agentTool(ctx, env, "", tool, args, out)
+}
+
+// agentTool calls a tool with the owner's rights for the agent session named session, or as the
+// owner when session is empty.
+func agentTool(ctx context.Context, env paths.Env, session, tool string, args, out any) error {
 	client, err := daemonClient(env)
 	if err != nil {
 		return err
 	}
-	return client.Tool(ctx, "", tool, args, out)
+	return client.As(session).Tool(ctx, "", tool, args, out)
 }
 
 func printJSON(w io.Writer, v any) error {
@@ -84,8 +90,12 @@ func newStatus(env paths.Env) *cobra.Command {
 
 // printText calls a tool whose result is text and prints it.
 func printText(cmd *cobra.Command, env paths.Env, tool string, args any) error {
+	return printAgentText(cmd, env, "", tool, args)
+}
+
+func printAgentText(cmd *cobra.Command, env paths.Env, session, tool string, args any) error {
 	var t api.Text
-	if err := ownerTool(cmd.Context(), env, tool, args, &t); err != nil {
+	if err := agentTool(cmd.Context(), env, session, tool, args, &t); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintln(cmd.OutOrStdout(), t.Text)
@@ -104,11 +114,15 @@ func newCommand(env paths.Env) *cobra.Command {
 }
 
 func newSend(env paths.Env) *cobra.Command {
-	var to, text string
+	var to, text, session string
 	cmd := &cobra.Command{
-		Use:   "send --to <chat> [--text <text>]",
-		Short: "Send a message as the owner; the text comes from --text or standard input",
-		Args:  cobra.NoArgs,
+		Use:   "send --to <chat> [--text <text>] [--session <name>]",
+		Short: "Send a message as the owner, or for an agent session with --session",
+		Long: "Send a message; the text comes from --text or standard input. Without --session it goes out\n" +
+			"exactly as written. With --session it is an agent's message, and WhatsAgent puts the agent\n" +
+			"prefix (see /prefix) in front, so the agent writes only the message. The CLI keeps the\n" +
+			"owner's rights either way, so the send rules do not apply.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if text == "" {
 				data, err := io.ReadAll(cmd.InOrStdin())
@@ -120,11 +134,12 @@ func newSend(env paths.Env) *cobra.Command {
 			if strings.TrimSpace(text) == "" {
 				return fmt.Errorf("no text to send")
 			}
-			return printText(cmd, env, "send", api.SendArgs{Chat: to, Text: text})
+			return printAgentText(cmd, env, session, "send", api.SendArgs{Chat: to, Text: text})
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "the chat: a JID, a phone number, \"self\" or part of its name")
 	cmd.Flags().StringVar(&text, "text", "", "the message text")
+	cmd.Flags().StringVar(&session, "session", "", "send as this agent session, with the agent prefix")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
 }

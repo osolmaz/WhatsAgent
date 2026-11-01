@@ -347,9 +347,9 @@ func pushable(e model.Event) bool {
 	return e.Kind == model.New && (e.Message.Role == model.RoleOwner || e.Message.Role == model.RoleOther)
 }
 
+// addressed reports whether m names the agents or the session, or answers an agent message.
 func (c *Core) addressed(ctx context.Context, name string, m model.Message) bool {
-	text := strings.ToLower(m.Text)
-	if strings.Contains(text, "claude") || strings.Contains(text, strings.ToLower(name)) {
+	if mentions(m.Text, c.AgentName(ctx)) || mentions(m.Text, name) {
 		return true
 	}
 	sent, _ := c.st.IsSent(ctx, m.ReplyTo)

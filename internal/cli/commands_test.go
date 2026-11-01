@@ -85,7 +85,15 @@ func TestOwnerCommands(t *testing.T) {
 	if out, err := runCtx(context.Background(), env, "", "send", "--to", "Team <> Sam", "--text", "hello"); err != nil || !strings.HasPrefix(out, "sent") {
 		t.Errorf("send = %q, %v", out, err)
 	}
-	d.Expect("hello")
+	if s := d.Expect("hello"); s.Text != "hello" {
+		t.Errorf("owner send = %q", s.Text)
+	}
+	if _, err := runCtx(context.Background(), env, "", "send", "--to", "self", "--session", "helper", "--text", "signed"); err != nil {
+		t.Fatal(err)
+	}
+	if s := d.Expect("signed"); s.Text != "🤖 *Agent*: signed" {
+		t.Errorf("agent send = %q", s.Text)
+	}
 	if _, err := runCtx(context.Background(), env, "from stdin\n", "send", "--to", "self"); err != nil {
 		t.Error(err)
 	}

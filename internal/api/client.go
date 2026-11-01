@@ -17,6 +17,13 @@ import (
 // Client talks to the daemon over its Unix socket.
 type Client struct {
 	http *http.Client
+	as   string
+}
+
+// As returns a client whose owner calls act for the agent session named session, so that its
+// sends get the agent prefix.
+func (c *Client) As(session string) *Client {
+	return &Client{http: c.http, as: session}
 }
 
 // NewClient returns a client for the daemon socket at path.
@@ -59,7 +66,7 @@ func (c *Client) ToolRaw(ctx context.Context, token, name string, args any) (jso
 	if token != "" {
 		path = "/v1/tool"
 	}
-	body, err := json.Marshal(ToolRequest{Token: token, Tool: name, Args: data})
+	body, err := json.Marshal(ToolRequest{Token: token, Tool: name, Args: data, As: c.as})
 	if err != nil {
 		return nil, err
 	}

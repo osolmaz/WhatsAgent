@@ -172,18 +172,13 @@ func (c *Core) Send(ctx context.Context, caller Caller, ref, text string) (strin
 	})
 }
 
-// prefixed adds the route's reply prefix, or the session's name for the self-chat.
+// prefixed puts the agent prefix in front of a message from an agent session. The owner's own
+// messages go out as written.
 func (c *Core) prefixed(ctx context.Context, caller Caller, jid, text string) string {
-	if caller.owner {
+	if caller == Owner {
 		return text
 	}
-	if jid == c.wa.SelfChat() {
-		return fmt.Sprintf("🤖 %s: %s", caller.Session, text)
-	}
-	if r, ok := c.routedTo(ctx, caller.Session, jid); ok && r.Prefix != "" && !strings.HasPrefix(text, r.Prefix) {
-		return r.Prefix + text
-	}
-	return text
+	return withPrefix(c.prefixFor(ctx, caller.Session, jid), text)
 }
 
 // gate runs act when the send rules allow caller to act on chat, asks the owner first for ask,
