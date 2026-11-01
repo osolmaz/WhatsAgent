@@ -1,61 +1,72 @@
 # WhatsAgent
 
-WhatsAgent is a bridge between a WhatsApp account and the coding agent sessions that the account's owner runs in Claude Code and Codex. You control it by messaging yourself on WhatsApp: messages that start with `/` are commands for WhatsAgent, and every other message goes to home, an agent session that WhatsAgent keeps running. A command such as `/route` sends a chat's new messages to one of your sessions, and send rules decide which sessions may write to which chats.
+<p align="center">
+  <img src="assets/cover.svg" alt="WhatsAgent: A WhatsApp bridge for coding agents such as Claude Code and Codex." width="880">
+</p>
 
-WhatsAgent runs on Linux and macOS. It is not affiliated with or endorsed by WhatsApp or Meta.
+WhatsAgent is a WhatsApp bridge for coding agents such as Claude Code and Codex. It links to your WhatsApp account as a linked device, so you can talk to your agents from your phone, let them read a chat when you ask, and have them answer from your account under their own name.
+
+You control it from your "Message Yourself" chat. Messages that start with `/` are commands for WhatsAgent, and every other message goes to home, an agent that WhatsAgent keeps running for you. In any other chat, "Bob, wake up" lets an agent read along and help for an hour.
+
+WhatsAgent runs on Linux and macOS. It is not affiliated with or endorsed by WhatsApp or Meta. It uses an unofficial WhatsApp client, and WhatsApp can ban numbers that send automated messages, so WhatsAgent spaces its sends at least two seconds apart.
 
 ## Install
 
-WhatsAgent needs Go 1.26.10 or later to build:
+You need Go 1.26.10 or later, and Claude Code for home and the chat agents. Home can run on Codex instead.
 
 ```sh
 go install github.com/osolmaz/WhatsAgent/cmd/whatsagent@latest
+whatsagent link --phone +15551234567   # prints a code to enter on your phone
+whatsagent service install             # runs the daemon as a user service
+whatsagent setup claude                # gives every Claude Code session the WhatsApp tools
+whatsagent setup codex                 # the same for Codex
 ```
 
-Link it to your account as a WhatsApp linked device, then run the daemon as a user service (systemd on Linux, launchd on macOS):
+`whatsagent link --phone` prints a code; on your phone, open WhatsApp, go to Linked devices, choose "Link with phone number", and enter it. Without `--phone`, `whatsagent link` prints a QR code to scan there instead. `whatsagent link --import <session.db>` takes over the login of another whatsmeow-based tool; stop that tool first, because two programs on one linked device disconnect each other.
 
-```sh
-whatsagent link                 # scan the QR code under WhatsApp > Linked devices
-whatsagent link --phone +15551234567   # or pair with a code instead
-whatsagent service install
-```
+Then send `/home claude` or `/home codex` in your "Message Yourself" chat to start home.
 
-`whatsagent link --import <session.db>` takes over the login of another whatsmeow-based tool instead of pairing again. Stop that tool first, because two programs on one linked device disconnect each other.
+To let Claude Code or Codex do the install, paste this into it:
 
-Give your agent sessions the WhatsApp tools:
-
-```sh
-whatsagent setup claude   # every Claude Code session gets the whatsagent MCP server
-whatsagent setup codex    # the same for Codex
-```
+> Install WhatsAgent from https://github.com/osolmaz/WhatsAgent by following the Install section of its README. Ask me for my phone number first. Run `whatsagent link --phone <number>` in the background with its output in a file, tell me the code it prints, and wait until it says the account is linked. Then install the service, run `whatsagent setup` for the agent you are, and tell me to send `/home claude` or `/home codex` in my "Message Yourself" chat.
 
 ## Use
 
-In your WhatsApp "Message Yourself" chat, send `/help` for the commands. The most useful ones:
+In your "Message Yourself" chat, send `/help` for the commands. The most useful ones:
 
 | Command | Effect |
 | --- | --- |
-| `/status` | WhatsApp link, home, sessions and waiting messages |
+| `/status` | WhatsApp link, home, sessions and open windows |
 | `/home claude` | Run home on Claude Code; `/home codex`, `/home off` and `/home new` also work |
-| `/chats <query>` | Find a chat by name |
-| `/route <chat> <session> [<mode>]` | Let a session handle a chat; the mode defaults to `all` |
+| `/name Bob` | Name the agents; the name is also their trigger word |
 | `/mode <chat> off\|keyword\|window\|all` | Set what agents see of a chat; `*` sets every chat |
-| `/allow <session> <chat>` | Let a session send to a chat without asking; `/ask` and `/deny` set the other rules |
+| `/route <chat> <session> [<mode>]` | Let one of your sessions handle a chat; the mode defaults to `all` |
+| `/chats <query>` | Find a chat by name |
 
-When a session wants to send somewhere its rules do not allow, WhatsAgent asks you in the self-chat, and you answer with its two-digit code, such as `yes 42` or `no 42`. Home and the chat agents approve their own tool calls with Claude Code's auto mode or Codex's auto review, and ask you only when the harness will not decide; `/auto off` makes them ask every time.
+### Chat modes
 
-Each chat has a mode that decides what an agent sees of it. In the default `window` mode, the agent sees nothing until you wake it in the chat, for example with "Bob, wake up" or "Bob start"; its name alone does nothing. Then it can read the last 30 minutes and every new message for an hour. Naming it again extends that hour, and "Bob stop watching" ends it. The agent says in the chat when it starts monitoring and when it is done. Only your own messages can call it, never other people's. The `keyword` mode shows the agent only your messages that name it, `all` shows everything, and `off` shows nothing. A chat without a route gets its own agent, which can read only what the chat's mode shows. `/window` changes the window length, the lookback, the stop phrases and the two messages. The [chat modes specification](docs/2026-11-01-chat-modes.md) has the details.
+Each chat has a mode that decides what an agent sees of it. In the default `window` mode, the agent sees nothing until you wake it in the chat with its name and a wake phrase, such as "Bob, wake up" or "Bob start". It can then read the last 30 minutes and every new message for an hour. Naming it again extends that hour, and "Bob stop watching" ends it. The agent says in the chat when it starts monitoring and when it is done. Only your own messages can wake it, never other people's.
 
-Agents write only their message, and WhatsAgent puts a prefix in front of it so people can tell the agent's messages from yours. `/name Bob` names the agents, and the name is also their trigger word. `/prefix` sets the prefix as any text, with `{name}` and `{session}` filled in, `\n` for a line break, and WhatsApp formatting such as `*bold*`. For example, `/prefix 🤖 *{name}*:` makes a message read "🤖 **Bob**: On it.", and `/prefix off` turns the prefix off. A route can set its own prefix for one chat.
+The `keyword` mode shows the agent only your messages that name it, `all` shows everything, and `off` shows nothing. A chat without a route gets its own agent, which has only WhatsAgent's tools and web search, so it can read only what the chat's mode shows. `/window` changes the window length, the lookback, the wake and stop phrases, and the two messages. The [chat modes specification](docs/2026-11-01-chat-modes.md) has the details.
 
-A session receives its routed messages in one of three ways:
+### Agent messages
 
-- `whatsagent claude` starts Claude Code with the WhatsAgent channel, so messages arrive in the session directly.
-- Inside any Claude Code session, run `whatsagent watch --session <name> --chat <chat>` with the Monitor tool. Each new message wakes the session.
-- `whatsagent codex` starts the Codex TUI on the Codex app-server daemon, and WhatsAgent starts a turn in its thread for each batch of messages.
+Agents write only their message, and WhatsAgent puts a prefix in front of it so people can tell the agent's messages from yours. `/prefix` sets it as any text, with `{name}` and `{session}` filled in, `\n` for a line break, and WhatsApp formatting such as `*bold*`. The default, `🤖 *{name}*:`, makes a message read "🤖 **Bob**: On it."
 
-Home and the chat agents run as normal Claude Code sessions in terminals that the daemon keeps. `whatsagent web` opens them in your browser: a list of sessions on the left and the selected agent's terminal on the right, where you can watch it work and type into it. Closing the tab leaves them running.
+When an agent wants to send somewhere it may not, WhatsAgent asks you in your "Message Yourself" chat, and you answer with the two-digit code, such as `yes 42` or `no 42`. Home and the chat agents approve their own tool calls with Claude Code's auto mode or Codex's auto review, and ask you only when that cannot decide; `/auto off` makes them ask every time.
 
-Scripts can use the daemon too: `whatsagent send --to <chat> --text <text>`, `react`, `media`, `messages`, `search`, `export` and `changes`. A send goes out exactly as written; add `--session <name>` when an agent sends, and WhatsAgent puts the prefix in front. `whatsagent command "/route Sam billing"` runs any self-chat command.
+### Watching the agents
 
-How it works, and what it does not do yet, is in the [plan](docs/2026-10-31-whatsagent-plan.md).
+Home and the chat agents run as normal Claude Code sessions in terminals that the daemon keeps. `whatsagent web` opens them in your browser: the sessions on the left, and the selected agent's terminal on the right, where you can watch it work and type into it. Closing the tab leaves them running.
+
+### Your own sessions
+
+Your own agent sessions can take part too. Every Claude Code and Codex session has the WhatsApp tools after `whatsagent setup`, and a session can ask for a chat with the `route_here` tool, which you confirm in WhatsApp. To get a chat's messages pushed in, start Claude Code with `whatsagent claude`, or start the Codex TUI with `whatsagent codex`.
+
+Scripts can use the daemon as well: `whatsagent send --to <chat> --text <text>`, `react`, `media`, `messages`, `search`, `export` and `changes`. A send goes out exactly as written; with `--session <name>`, WhatsAgent puts the agent prefix in front. `whatsagent command "/route Sam billing"` runs any self-chat command.
+
+How it works is in the [plan](docs/2026-10-31-whatsagent-plan.md).
+
+## License
+
+MIT. The browser page includes ghostty-web (MIT) and the Monaspace Argon font (SIL Open Font License); their licenses are in [internal/web/licenses](internal/web/licenses).
