@@ -24,11 +24,11 @@ whatsagent setup codex                 # the same for Codex
 
 `whatsagent link --phone` prints a code; on your phone, open WhatsApp, go to Linked devices, choose "Link with phone number", and enter it. Without `--phone`, `whatsagent link` prints a QR code to scan there instead. `whatsagent link --import <session.db>` takes over the login of another whatsmeow-based tool; stop that tool first, because two programs on one linked device disconnect each other.
 
-Then send `/home claude` or `/home codex` in your "Message Yourself" chat to start home.
+Then send `/home claude` or `/home codex` in your "Message Yourself" chat to start home. Home on Codex runs as a thread on Codex's app-server daemon, so start that daemon first with `codex app-server daemon start`.
 
 To let Claude Code or Codex do the install, paste this into it:
 
-> Install WhatsAgent from https://github.com/osolmaz/WhatsAgent by following the Install section of its README. Ask me for my phone number first. Run `whatsagent link --phone <number>` in the background with its output in a file, tell me the code it prints, and wait until it says the account is linked. Then install the service, run `whatsagent setup` for the agent you are, and tell me to send `/home claude` or `/home codex` in my "Message Yourself" chat.
+> Install WhatsAgent from https://github.com/osolmaz/WhatsAgent by following the Install section of its README. Ask me for my phone number first. Run `whatsagent link --phone <number>` in the background with its output in a file, tell me the code it prints, and wait until it says the account is linked. Then install the service, run `whatsagent setup` for the agent you are, and, if you are Codex, run `codex app-server daemon start`. Finally tell me to send `/home claude` or `/home codex` in my "Message Yourself" chat.
 
 ## Use
 
