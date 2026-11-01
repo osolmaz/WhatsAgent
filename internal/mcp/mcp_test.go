@@ -13,6 +13,7 @@ import (
 
 	"github.com/osolmaz/WhatsAgent/internal/api"
 	"github.com/osolmaz/WhatsAgent/internal/core"
+	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/testkit"
 )
 
@@ -146,8 +147,17 @@ func TestChannelSession(t *testing.T) {
 	note := c.notification("notifications/claude/channel")
 	params, _ := note["params"].(map[string]any)
 	meta, _ := params["meta"].(map[string]any)
-	if params["content"] != "please look" || meta["chat_id"] != "g@g.us" || meta["trust"] != "other" || meta["chat_name"] != "Team" {
+	if params["content"] != "[Team] Sam: please look" || meta["chat_id"] != "g@g.us" || meta["trust"] != "other" || meta["chat_name"] != "Team" {
 		t.Errorf("channel notification = %v", note)
+	}
+	for e, want := range map[*model.Event]string{
+		{ChatName: "Sam", Message: model.Message{SenderName: "Sam"}}:                      "Sam: ",
+		{Message: model.Message{Sender: "15551234567@s.whatsapp.net"}}:                    "15551234567: ",
+		{ChatName: "Team", Message: model.Message{Sender: "200@lid", SenderName: "Maya"}}: "[Team] Maya: ",
+	} {
+		if got := speaker(*e); got != want {
+			t.Errorf("speaker(%+v) = %q, want %q", *e, got, want)
+		}
 	}
 
 	text, isErr := resultText(t, c.call("tools/call", map[string]any{"name": "read_chat", "arguments": map[string]any{"chat": "Team"}}))

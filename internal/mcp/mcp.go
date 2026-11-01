@@ -252,10 +252,24 @@ func (s *Server) onFrame(f api.Frame) error {
 	return nil
 }
 
+// speaker names who wrote a message, and in a group also where, at the start of a channel
+// message, because Claude Code's terminal shows only the content: "[Team] Sam: " in a group,
+// and "Sam: " in a direct chat, whose name is the person's.
+func speaker(e model.Event) string {
+	name := e.Message.SenderName
+	if name == "" {
+		name, _, _ = strings.Cut(e.Message.Sender, "@")
+	}
+	if e.ChatName == "" || e.ChatName == name {
+		return name + ": "
+	}
+	return "[" + e.ChatName + "] " + name + ": "
+}
+
 // channelEvent turns an event into the params of a notifications/claude/channel message.
 func channelEvent(e model.Event, loc *time.Location) map[string]any {
 	m := e.Message
-	content := m.Body()
+	content := speaker(e) + m.Body()
 	if m.Quote != "" {
 		content += "\n(in reply to: " + m.Quote + ")"
 	}
