@@ -34,20 +34,31 @@ type Pusher interface {
 	Verdict(ctx context.Context, requestID string, allow bool) error
 }
 
-// HomeHost is what a home adapter gets from the core.
-type HomeHost struct {
-	// Post sends one of home's replies to the self-chat.
+// AgentHost is what an agent that WhatsAgent runs itself gets from the core: home, or a chat's
+// own agent.
+type AgentHost struct {
+	// Session is the agent's session name, which its WhatsAgent MCP tools check in with.
+	Session string
+	// Chat is the chat of a chat agent, and "" for home.
+	Chat string
+	// ChatName is the chat's display name.
+	ChatName string
+	// Name is the agents' name when the agent starts.
+	Name string
+	// Post sends one of the agent's answers: home's to the self-chat, a chat agent's to its chat.
 	Post func(text string)
-	// SessionID is the stored ID of home's session on this harness, or "" for a fresh home.
+	// Fail tells the owner in the self-chat that a turn of the agent failed.
+	Fail func(text string)
+	// SessionID is the stored ID of the agent's harness session, or "" for a fresh one.
 	SessionID string
-	// SaveSessionID stores the ID of home's session, so home continues it after a restart.
+	// SaveSessionID stores the ID of the agent's harness session, so it continues after a restart.
 	SaveSessionID func(id string) error
-	// Approve asks the owner whether home may use a tool and waits for the answer.
+	// Approve asks the owner whether the agent may use a tool and waits for the answer.
 	Approve func(ctx context.Context, tool, input string) bool
 }
 
-// HomeFactory starts home on one harness.
-type HomeFactory func(ctx context.Context, host HomeHost) (Pusher, error)
+// AgentFactory starts an agent on one harness.
+type AgentFactory func(ctx context.Context, host AgentHost) (Pusher, error)
 
 // Config holds what the core needs.
 type Config struct {
@@ -58,7 +69,9 @@ type Config struct {
 	MediaDir string
 	Location *time.Location
 	// Homes maps a harness name, "claude" or "codex", to the code that starts home on it.
-	Homes map[string]HomeFactory
+	Homes map[string]AgentFactory
+	// ChatAgent starts a chat's own agent. Without it, chats without a route reach no agent.
+	ChatAgent AgentFactory
 	// SendGap is the shortest time between two sends, because WhatsApp can ban numbers that
 	// send automated messages quickly.
 	SendGap time.Duration
@@ -66,6 +79,11 @@ type Config struct {
 	StatusDelay time.Duration
 	// Heartbeat is how often an idle push session is checked.
 	Heartbeat time.Duration
+	// WindowCheck is how often WhatsAgent closes windows that reached their end.
+	WindowCheck time.Duration
+	// AgentIdle is how long a chat agent without an open window and without new messages keeps
+	// running before WhatsAgent stops it.
+	AgentIdle time.Duration
 }
 
 const (
@@ -102,6 +120,7 @@ type Core struct {
 	statusOn bool
 	homeStop context.CancelFunc
 	homeOn   string
+	agents   map[string]*chatAgent
 
 	sendMu   sync.Mutex
 	lastSend time.Time
@@ -115,6 +134,12 @@ func New(cfg Config) *Core {
 	if cfg.Log == nil {
 		cfg.Log = slog.New(slog.DiscardHandler)
 	}
+	if cfg.WindowCheck <= 0 {
+		cfg.WindowCheck = 10 * time.Second
+	}
+	if cfg.AgentIdle <= 0 {
+		cfg.AgentIdle = 15 * time.Minute
+	}
 	return &Core{
 		cfg:     cfg,
 		st:      cfg.Store,
@@ -126,14 +151,16 @@ func New(cfg Config) *Core {
 		conns:   map[string]*conn{},
 		subs:    map[string]*subscriber{},
 		pending: map[string]*pending{},
+		agents:  map[string]*chatAgent{},
 	}
 }
 
-// Start runs the self-chat outbox and starts home when the owner turned it on. It returns at
-// once; everything stops when ctx ends.
+// Start runs the self-chat outbox and the window clock, and starts home when the owner turned
+// it on. It returns at once; everything stops when ctx ends.
 func (c *Core) Start(ctx context.Context) {
 	c.ctx = ctx
 	go c.runOutbox(ctx)
+	go c.runWindows(ctx)
 	if harness, _ := c.st.Setting(ctx, "home"); harness != "" {
 		if err := c.startHome(ctx, harness); err != nil {
 			c.log.Warn("start home", "harness", harness, "err", err)
@@ -262,20 +289,38 @@ func (c *Core) OnChatName(jid, name string) {
 func (c *Core) OnUpdate(u model.Update, live bool) {
 	ctx := c.ctx
 	if u.Kind == model.New {
-		u.Message.Role = c.role(ctx, u.Message)
-		c.fillChatName(ctx, u.Message)
+		u.Message = c.prepare(ctx, u.Message, live)
 	}
 	seq, err := c.st.Apply(ctx, u, live)
 	if err != nil {
 		c.log.Warn("store update", "id", u.Message.ID, "err", err)
 		return
 	}
-	if seq == 0 || !live {
-		return
+	if seq != 0 && live {
+		c.dispatch(ctx, u, seq)
 	}
+}
+
+// prepare sets a new message's role and fills in its chat's name. For a live message it runs the
+// trigger before the message is stored, so no session sees the message under the window that
+// the message changes.
+func (c *Core) prepare(ctx context.Context, m model.Message, live bool) model.Message {
+	m.Role = c.role(ctx, m)
+	c.fillChatName(ctx, m)
+	if live {
+		c.runTrigger(ctx, m)
+	}
+	return m
+}
+
+// dispatch acts on a stored live update: it runs a self-chat command, or wakes the sessions.
+func (c *Core) dispatch(ctx context.Context, u model.Update, seq int64) {
 	if u.Kind == model.New && u.Message.Role == model.RoleCommand {
 		c.handleCommand(ctx, u.Message.Text)
 		return
+	}
+	if u.Kind == model.New {
+		c.wakeChatAgent(ctx, u.Message, seq)
 	}
 	c.wakeAll()
 }

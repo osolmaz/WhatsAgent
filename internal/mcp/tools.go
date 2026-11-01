@@ -23,12 +23,12 @@ const chatHelp = "The chat: a JID such as 15551234567@s.whatsapp.net or 1203...@
 var toolList = []map[string]any{
 	{
 		"name":        "read_chat",
-		"description": "Read the latest messages of a WhatsApp chat, oldest first.",
+		"description": "Read the latest messages of a WhatsApp chat that you may read, oldest first. The chat's mode decides which: every message, only the owner's messages that name the agents, or the messages of the open window.",
 		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "limit": integer("How many messages, default 50.")}, "chat"),
 	},
 	{
 		"name":        "search",
-		"description": "Search stored WhatsApp messages for a text, newest first.",
+		"description": "Search the stored WhatsApp messages that you may read for a text, newest first.",
 		"inputSchema": schema(map[string]any{
 			"query": str("The text to find."),
 			"chat":  str("Optional chat to search in. " + chatHelp),
@@ -56,11 +56,12 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "route_here",
-		"description": "Ask the owner to route a WhatsApp chat to this session, so its new messages come here. The owner confirms in WhatsApp.",
+		"description": "Ask the owner to let this session handle a WhatsApp chat, so its new messages come here and you can reply with send. The owner confirms in WhatsApp.",
 		"inputSchema": schema(map[string]any{
-			"chat":      str(chatHelp),
-			"prefix":    str("Optional prefix for this chat in place of the owner's /prefix. {name} and {session} are filled in."),
-			"addressed": map[string]any{"type": "boolean", "description": "Only push messages that name the agent or answer its messages."},
+			"chat":   str(chatHelp),
+			"prefix": str("Optional prefix for this chat in place of the owner's /prefix. {name} and {session} are filled in."),
+			"mode": map[string]any{"type": "string", "enum": []string{"all", "keyword", "window", "off"},
+				"description": "What this session sees of the chat: all (the default) is every message; keyword is only the owner's messages that name the agents; window is every message while a window that the owner opens by naming the agents is open."},
 		}, "chat"),
 	},
 	{

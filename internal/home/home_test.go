@@ -31,7 +31,8 @@ func TestMain(m *testing.M) {
 
 func fakeClaude() {
 	if path := os.Getenv("FAKE_CLAUDE_ARGS"); path != "" {
-		_ = os.WriteFile(path, []byte(strings.Join(os.Args[1:], "\n")), 0o600)
+		args := append(os.Args[1:], "WHATSAGENT_SESSION="+os.Getenv("WHATSAGENT_SESSION"))
+		_ = os.WriteFile(path, []byte(strings.Join(args, "\n")), 0o600)
 	}
 	fmt.Println(`{"type":"system","subtype":"init","session_id":"s"}`)
 	scanner := bufio.NewScanner(os.Stdin)
@@ -57,9 +58,10 @@ type host struct {
 
 func newHost(id string) *host { return &host{posts: make(chan string, 10), id: id} }
 
-func (h *host) homeHost() core.HomeHost {
-	return core.HomeHost{
+func (h *host) homeHost() core.AgentHost {
+	return core.AgentHost{
 		Post:      func(text string) { h.posts <- text },
+		Fail:      func(text string) { h.posts <- text },
 		SessionID: h.id,
 		SaveSessionID: func(id string) error {
 			h.mu.Lock()
@@ -136,12 +138,16 @@ func TestClaudeHome(t *testing.T) {
 	}
 	h.expect(t, "echo: [2026-11-01 01:00] The owner wrote in the self-chat: hello home")
 	_ = home.Push(ctx, []model.Event{event(selfChat, "please fail", true)})
-	h.expect(t, "Home failed: echo:")
+	h.expect(t, "home failed: echo:")
 	args, _ := os.ReadFile(argsFile)
-	for _, want := range []string{"--session-id\n" + h.saved(), "--permission-prompt-tool\nmcp__whatsagent__approve", "--model\nclaude-opus-5-5"} {
+	for _, want := range []string{"--session-id\n" + h.saved(), "--permission-prompt-tool\nmcp__whatsagent__approve",
+		"--allowedTools\nmcp__whatsagent", "--model\nclaude-opus-5-5", "WHATSAGENT_SESSION=home"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args %q missing %q", args, want)
 		}
+	}
+	if strings.Contains(string(args), "--tools") || strings.Contains(string(args), "--strict-mcp-config") {
+		t.Errorf("home's tools were limited: %q", args)
 	}
 	if err := home.Verdict(ctx, "x", true); err != nil {
 		t.Error(err)
@@ -192,5 +198,35 @@ func TestClaudeHomeResumesAndRecovers(t *testing.T) {
 	broken, _ := NewClaude(ctx, ClaudeOptions{Bin: "/no/such/claude", Dir: t.TempDir()}, newHost("x").homeHost())
 	if err := broken.Push(ctx, []model.Event{event(selfChat, "x", true)}); err == nil {
 		t.Error("a missing claude binary gave no error")
+	}
+}
+
+func TestClaudeChatAgent(t *testing.T) {
+	bin, _ := os.Executable()
+	argsFile := filepath.Join(t.TempDir(), "args")
+	t.Setenv("FAKE_CLAUDE", "echo")
+	t.Setenv("FAKE_CLAUDE_ARGS", argsFile)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := newHost("")
+	host := h.homeHost()
+	host.Session = "chat-team"
+	instructions := ChatInstructions("Bob", "Team", "g@g.us")
+	agent, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat, Instructions: instructions,
+		Tools: []string{"WebSearch", "WebFetch"}, MCPConfig: `{"mcpServers":{}}`}, host)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = agent.Push(ctx, []model.Event{event("g@g.us", "please fail", false)})
+	h.expect(t, "chat-team failed: echo:")
+	args, _ := os.ReadFile(argsFile)
+	for _, want := range []string{"--append-system-prompt\n" + instructions, "--tools\nWebSearch,WebFetch",
+		"--strict-mcp-config\n--mcp-config\n{\"mcpServers\":{}}", "WHATSAGENT_SESSION=chat-team"} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("args %q missing %q", args, want)
+		}
+	}
+	if !strings.Contains(instructions, `You are Bob`) || !strings.Contains(instructions, `"Team" (chat_id g@g.us)`) {
+		t.Errorf("ChatInstructions = %q", instructions)
 	}
 }

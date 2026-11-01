@@ -4,6 +4,7 @@ package daemon
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -28,8 +29,10 @@ type Options struct {
 	Dirs    paths.Dirs
 	Log     *slog.Logger
 	Version string
-	// ClaudeBin is the claude executable that home on Claude Code runs.
+	// ClaudeBin is the claude executable that home and the chat agents run.
 	ClaudeBin string
+	// Bin is the whatsagent executable, which the chat agents run as their only MCP server.
+	Bin string
 	// CodexSocket is the Codex app-server daemon's control socket.
 	CodexSocket string
 	// CodexEvery is how often the Codex adapter looks for threads.
@@ -81,17 +84,41 @@ func build(opts Options, st *store.Store, client *wa.Client) (*core.Core, *codex
 	c = core.New(core.Config{
 		Store: st, WhatsApp: client, Log: opts.Log, MediaDir: filepath.Join(opts.Dirs.Data, "media"),
 		SendGap: 2 * time.Second, StatusDelay: 3 * time.Second, Heartbeat: 30 * time.Second,
-		Homes: map[string]core.HomeFactory{
-			"claude": func(ctx context.Context, host core.HomeHost) (core.Pusher, error) {
+		Homes: map[string]core.AgentFactory{
+			"claude": func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
 				return home.NewClaude(ctx, home.ClaudeOptions{Bin: opts.ClaudeBin, Dir: homeDir, SelfChat: selfChat, Log: opts.Log}, host)
 			},
-			"codex": func(ctx context.Context, host core.HomeHost) (core.Pusher, error) {
+			"codex": func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
 				format := func(events []model.Event) string { return home.Prompt(events, selfChat, time.Local) }
 				return adapter.NewHome(ctx, host, homeDir, home.Instructions, format)
 			},
 		},
+		ChatAgent: chatAgents(opts, selfChat),
 	})
 	return c, adapter
+}
+
+// chatAgents starts each chat's own agent on Claude Code, with no built-in tools other than web
+// search and fetch, and with WhatsAgent as its only MCP server. The agent can then read only
+// what its chat's mode shows it.
+func chatAgents(opts Options, selfChat string) core.AgentFactory {
+	return func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
+		return home.NewClaude(ctx, home.ClaudeOptions{
+			Bin: opts.ClaudeBin, Dir: filepath.Join(opts.Dirs.Data, "agents", host.Session), SelfChat: selfChat,
+			Log: opts.Log, Instructions: home.ChatInstructions(host.Name, host.ChatName, host.Chat),
+			Tools: []string{"WebSearch", "WebFetch"}, MCPConfig: mcpConfig(opts.Bin, host.Session),
+		}, host)
+	}
+}
+
+// mcpConfig is a Claude Code MCP configuration with only the WhatsAgent server, checked in as
+// session.
+func mcpConfig(bin, session string) string {
+	data, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"whatsagent": map[string]any{
+		"type": "stdio", "command": bin, "args": []string{"channel"},
+		"env": map[string]string{"WHATSAGENT_SESSION": session, "WHATSAGENT_HARNESS": "claude"},
+	}}})
+	return string(data)
 }
 
 // turnText formats routed events as one turn for a session that the adapter pushes into.

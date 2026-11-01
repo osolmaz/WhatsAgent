@@ -114,6 +114,19 @@ func TestHelpers(t *testing.T) {
 	if !strings.Contains(text, "whatsagent send tool") || !strings.Contains(text, "hi") {
 		t.Errorf("turnText = %q", text)
 	}
+	want := `{"mcpServers":{"whatsagent":{"args":["channel"],"command":"/bin/whatsagent",` +
+		`"env":{"WHATSAGENT_HARNESS":"claude","WHATSAGENT_SESSION":"chat-team"},"type":"stdio"}}}`
+	if got := mcpConfig("/bin/whatsagent", "chat-team"); got != want {
+		t.Errorf("mcpConfig = %s", got)
+	}
+	dir := t.TempDir()
+	start := chatAgents(Options{Dirs: paths.Dirs{Data: dir}, ClaudeBin: "/no/such/claude", Bin: "/bin/whatsagent"}, "self")
+	if _, err := start(context.Background(), core.AgentHost{Session: "chat-team", SaveSessionID: func(string) error { return nil }}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "agents", "chat-team")); err != nil {
+		t.Errorf("the chat agent got no folder: %v", err)
+	}
 }
 
 type fakeWA struct{}

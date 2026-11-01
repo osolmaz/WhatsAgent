@@ -104,14 +104,14 @@ func TestChatsRoutesRulesSessions(t *testing.T) {
 	}
 
 	_ = s.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "a", Prefix: "P: "})
-	_ = s.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "b", Addressed: true})
+	_ = s.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "b"})
 	routes, _ := s.Routes(ctx)
-	if len(routes) != 1 || routes[0].Session != "b" || !routes[0].Addressed {
+	if len(routes) != 1 || routes[0].Session != "b" || routes[0].Prefix != "" {
 		t.Errorf("Routes = %+v", routes)
 	}
-	_ = s.SetRule(ctx, model.Rule{Session: "b", Chat: "*", Mode: model.Allow})
-	_ = s.SetRule(ctx, model.Rule{Session: "b", Chat: "*", Mode: model.Deny})
-	if rules, _ := s.Rules(ctx); len(rules) != 1 || rules[0].Mode != model.Deny {
+	_ = s.SetRule(ctx, model.Rule{Session: "b", Chat: "*", Permission: model.Allow})
+	_ = s.SetRule(ctx, model.Rule{Session: "b", Chat: "*", Permission: model.Deny})
+	if rules, _ := s.Rules(ctx); len(rules) != 1 || rules[0].Permission != model.Deny {
 		t.Errorf("Rules = %+v", rules)
 	}
 

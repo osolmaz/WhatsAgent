@@ -59,8 +59,12 @@ func newDaemon(env paths.Env) *cobra.Command {
 			}
 			log := slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: level}))
 			claude, _ := exec.LookPath("claude")
+			self, err := executable()
+			if err != nil {
+				return err
+			}
 			return daemon.Run(cmd.Context(), daemon.Options{
-				Dirs: dirs, Log: log, Version: version, ClaudeBin: claude,
+				Dirs: dirs, Log: log, Version: version, ClaudeBin: claude, Bin: self,
 				CodexSocket: daemon.CodexSocket(codexHome(env)), CodexEvery: 20 * time.Second,
 			})
 		},

@@ -85,6 +85,33 @@ type harness struct {
 	st    *store.Store
 	homes map[string]*fakePusher
 	n     int
+
+	mu     sync.Mutex
+	agents map[string]*fakeAgent
+}
+
+// fakeAgent is a chat agent that the harness started.
+type fakeAgent struct {
+	*fakePusher
+	host   AgentHost
+	starts int
+}
+
+// agent returns the chat agent named session once it started.
+func (h *harness) agent(session string) *fakeAgent {
+	h.t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		a := h.agents[session]
+		h.mu.Unlock()
+		if a != nil {
+			return a
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	h.t.Fatalf("chat agent %s did not start", session)
+	return nil
 }
 
 func newHarness(t *testing.T) *harness {
@@ -96,9 +123,10 @@ func newHarness(t *testing.T) *harness {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
-	h := &harness{t: t, ctx: ctx, wa: &fakeWA{sent: make(chan sentText, 100)}, st: st, homes: map[string]*fakePusher{}}
-	factory := func(name string) HomeFactory {
-		return func(_ context.Context, host HomeHost) (Pusher, error) {
+	h := &harness{t: t, ctx: ctx, wa: &fakeWA{sent: make(chan sentText, 100)}, st: st, homes: map[string]*fakePusher{},
+		agents: map[string]*fakeAgent{}}
+	factory := func(name string) AgentFactory {
+		return func(_ context.Context, host AgentHost) (Pusher, error) {
 			if name == "broken" {
 				return nil, errors.New("no harness")
 			}
@@ -109,10 +137,28 @@ func newHarness(t *testing.T) *harness {
 		}
 	}
 	h.core = New(Config{Store: st, WhatsApp: h.wa, MediaDir: t.TempDir(), Location: time.UTC,
-		Homes:       map[string]HomeFactory{"claude": factory("claude"), "codex": factory("codex"), "broken": factory("broken")},
-		StatusDelay: 10 * time.Millisecond, Heartbeat: 20 * time.Millisecond})
+		Homes:       map[string]AgentFactory{"claude": factory("claude"), "codex": factory("codex"), "broken": factory("broken")},
+		ChatAgent:   h.startAgent,
+		StatusDelay: 10 * time.Millisecond, Heartbeat: 20 * time.Millisecond,
+		WindowCheck: 20 * time.Millisecond, AgentIdle: 300 * time.Millisecond})
 	h.core.Start(ctx)
 	return h
+}
+
+func (h *harness) startAgent(_ context.Context, host AgentHost) (Pusher, error) {
+	if host.ChatName == "Broken" {
+		return nil, errors.New("no harness")
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	a := h.agents[host.Session]
+	if a == nil {
+		a = &fakeAgent{fakePusher: newPusher()}
+		h.agents[host.Session] = a
+	}
+	a.host = host
+	a.starts++
+	return a.fakePusher, nil
 }
 
 // receive delivers a live message as WhatsApp would.
@@ -220,21 +266,18 @@ func TestRoutesPushAndAddressed(t *testing.T) {
 	h.receive("other@g.us", "not routed", false)
 	time.Sleep(100 * time.Millisecond) // let the push session pass these two before the route changes
 
-	if err := h.st.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "billing-api", Addressed: true}); err != nil {
+	if _, err := h.core.Run(ctx, Owner, "/mode Team keyword"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.core.Run(ctx, Owner, "/name Bob"); err != nil {
 		t.Fatal(err)
 	}
 	h.receive("g@g.us", "chatter", false)
-	h.receive("g@g.us", "Bobby is not the agent", false)
-	h.receive("g@g.us", "hey BOB, look", false)
+	h.receive("g@g.us", "Bob, someone else may not call you", false)
+	h.receive("g@g.us", "Bobby is not the agent", true)
+	h.receive("g@g.us", "hey BOB, look", true)
 	if got := events(t, p); got[0].Message.Text != "hey BOB, look" {
-		t.Fatalf("addressed route pushed %+v", got)
-	}
-	h.receive("g@g.us", "billing-api: and this", false)
-	if got := events(t, p); got[0].Message.Text != "billing-api: and this" {
-		t.Fatalf("addressed route pushed %+v", got)
+		t.Fatalf("keyword mode pushed %+v", got)
 	}
 
 	sessions, _ := h.core.Sessions(ctx)
@@ -269,8 +312,8 @@ func TestEveryChatRouteAndWatch(t *testing.T) {
 	h := newHarness(t)
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
-	_ = h.st.SetRoute(ctx, model.Route{Chat: "*", Session: "all"})
-	_ = h.st.SetRoute(ctx, model.Route{Chat: "mine@g.us", Session: "someone-else"})
+	_, _ = h.core.setRoute(ctx, model.Route{Chat: "*", Session: "all"}, model.ModeAll)
+	_, _ = h.core.setRoute(ctx, model.Route{Chat: "mine@g.us", Session: "someone-else"}, model.ModeAll)
 	p := newPusher()
 	go func() { _ = h.core.Watch(ctx, "all", []string{"extra@g.us"}, 0, p) }()
 	time.Sleep(50 * time.Millisecond)
@@ -339,7 +382,9 @@ func TestSendRulesAndApprovals(t *testing.T) {
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
 	h.core.OnChatName("sam@s.whatsapp.net", "Sam")
-	_ = h.st.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "bot", Prefix: "Claude 🤖: "})
+	if _, err := h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "bot", Prefix: "Claude 🤖: "}, model.ModeAll); err != nil {
+		t.Fatal(err)
+	}
 	bot := Caller{Session: "bot"}
 
 	if out, err := h.core.Send(ctx, bot, "Team", "on it"); err != nil || !strings.Contains(out, "sent") {
@@ -364,7 +409,7 @@ func TestSendRulesAndApprovals(t *testing.T) {
 	h.receive(self, "no "+code, true)
 	h.expect("Not sent.")
 
-	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "sam@s.whatsapp.net", Mode: model.Deny})
+	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "sam@s.whatsapp.net", Permission: model.Deny})
 	if _, err := h.core.Send(ctx, bot, "Sam", "x"); !errors.Is(err, ErrNotAllowed) {
 		t.Errorf("denied send: %v", err)
 	}
@@ -379,7 +424,7 @@ func TestSendRulesAndApprovals(t *testing.T) {
 	}
 
 	// A failing send is reported to the owner after a yes.
-	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "sam@s.whatsapp.net", Mode: model.Ask})
+	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "sam@s.whatsapp.net", Permission: model.Ask})
 	_, _ = h.core.Send(ctx, bot, "Sam", "will fail")
 	code = h.expectCode("will fail")
 	h.wa.mu.Lock()
@@ -438,7 +483,12 @@ func TestReactMediaReadSearch(t *testing.T) {
 	if err != nil || len(read.Messages) != 3 {
 		t.Errorf("home read = %d, %v", len(read.Messages), err)
 	}
-	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "g@g.us", Mode: model.Allow})
+	// A send rule lets a session write to a chat; only handling the chat lets it read.
+	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "g@g.us", Permission: model.Allow})
+	if found, _ := h.core.Search(ctx, bot, "caption", "", 10); len(found) != 0 {
+		t.Errorf("Search with only a send rule = %d", len(found))
+	}
+	_, _ = h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "bot"}, model.ModeAll)
 	if found, _ := h.core.Search(ctx, bot, "caption", "", 10); len(found) != 1 {
 		t.Errorf("Search = %d", len(found))
 	}
@@ -506,22 +556,25 @@ func TestSessionCommandsWaitForOwner(t *testing.T) {
 		t.Errorf("/unroute *: %v", err)
 	}
 
-	out, _ = h.core.RouteHere(ctx, bot, "Team", "P: ", true)
+	out, _ = h.core.RouteHere(ctx, bot, "Team", "P: ", "keyword")
 	if !strings.Contains(out, "waiting") {
 		t.Fatalf("RouteHere = %q", out)
 	}
-	code = h.expectCode("bot wants the chat Team routed to it")
+	code = h.expectCode("bot wants the chat Team routed to it in the keyword mode")
 	h.receive(self, "yes "+code, true)
-	h.expect("Team now goes to bot")
-	_, _ = h.core.RouteHere(ctx, bot, "Team", "", false)
-	code = h.expectCode("routed to it")
+	h.expect("Team now goes to bot in the keyword mode")
+	_, _ = h.core.RouteHere(ctx, bot, "Team", "", "")
+	code = h.expectCode("routed to it in the all mode")
 	h.receive(self, "no "+code, true)
 	h.expect("Not routed.")
-	if out, err := h.core.RouteHere(ctx, Owner, "Team", "", false); err != nil || out != "routed" {
+	if out, err := h.core.RouteHere(ctx, Owner, "Team", "", ""); err != nil || !strings.Contains(out, "in the all mode") {
 		t.Errorf("owner RouteHere = %q, %v", out, err)
 	}
-	if _, err := h.core.RouteHere(ctx, bot, "", "", false); err == nil {
+	if _, err := h.core.RouteHere(ctx, bot, "", "", ""); err == nil {
 		t.Error("RouteHere without a chat gave no error")
+	}
+	if _, err := h.core.RouteHere(ctx, bot, "Team", "", "sometimes"); err == nil {
+		t.Error("RouteHere with an unknown mode gave no error")
 	}
 }
 
@@ -569,7 +622,7 @@ func TestApproveAndRelay(t *testing.T) {
 func TestAttachHeartbeatAndStatusMerge(t *testing.T) {
 	h := newHarness(t)
 	ctx, cancel := context.WithCancel(h.ctx)
-	_ = h.st.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "codex-a"})
+	_, _ = h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "codex-a"}, model.ModeAll)
 	p := newPusher()
 	done := make(chan error, 1)
 	go func() { done <- h.core.Attach(ctx, model.Session{Name: "codex-a", Harness: "codex"}, "codex", p) }()
@@ -642,7 +695,7 @@ func TestFullBatchWakesAgain(t *testing.T) {
 	h := newHarness(t)
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
-	_ = h.st.SetRoute(ctx, model.Route{Chat: "g@g.us", Session: "bulk"})
+	_, _ = h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "bulk"}, model.ModeAll)
 	if err := h.st.TouchSession(ctx, model.Session{Name: "bulk"}); err != nil {
 		t.Fatal(err)
 	}

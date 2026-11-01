@@ -81,12 +81,13 @@ func (c *Core) routedTo(ctx context.Context, session, chat string) (model.Route,
 	if err != nil {
 		return model.Route{}, false
 	}
-	t := c.targets(session, nil, routes)
+	t := c.targets(ctx, session, nil, routes)
 	return t.route(chat)
 }
 
-// mode applies the send rules to a send from caller to chat.
-func (c *Core) mode(ctx context.Context, caller Caller, chat string) (model.Mode, error) {
+// permission applies the send rules to a send from caller to chat. Without a rule, a session may
+// write to the self-chat, and to a chat it handles while the chat's mode lets it see the chat.
+func (c *Core) permission(ctx context.Context, caller Caller, chat string) (model.Permission, error) {
 	if caller.owner {
 		return model.Allow, nil
 	}
@@ -94,21 +95,30 @@ func (c *Core) mode(ctx context.Context, caller Caller, chat string) (model.Mode
 	if err != nil {
 		return "", err
 	}
-	_, routed := c.routedTo(ctx, caller.Session, chat)
-	return model.Decide(rules, caller.Session, chat, routed || chat == c.wa.SelfChat()), nil
+	v, handles := c.viewFor(ctx, caller, chat)
+	allowed := chat == c.wa.SelfChat() || (handles && v.talks())
+	return model.Decide(rules, caller.Session, chat, allowed), nil
 }
 
-// canRead reports whether caller may read chat: the owner and home read every chat, and other
-// sessions read their routed chats, the self-chat and chats with an allow rule.
-func (c *Core) canRead(ctx context.Context, caller Caller, chat string) bool {
-	if caller.owner || caller.Session == homeName || chat == c.wa.SelfChat() {
-		return true
+// viewFor returns what caller may read of chat, and false when it may read none of it. The owner
+// and home read every chat. Another session reads only a chat it handles, as the chat's mode
+// shows it, and never the self-chat.
+func (c *Core) viewFor(ctx context.Context, caller Caller, chat string) (view, bool) {
+	if caller.owner || caller.Session == homeName {
+		return fullView, true
 	}
-	if _, ok := c.routedTo(ctx, caller.Session, chat); ok {
-		return true
+	if chat == c.wa.SelfChat() {
+		return view{}, false
 	}
-	rules, err := c.st.Rules(ctx)
-	return err == nil && model.Decide(rules, caller.Session, chat, false) == model.Allow
+	if _, ok := c.routedTo(ctx, caller.Session, chat); !ok {
+		return view{}, false
+	}
+	return c.chatView(ctx, chat), true
+}
+
+// errHidden says that caller may not read chat.
+func errHidden(caller Caller, chat string) error {
+	return fmt.Errorf("%w: %s may not read %s; its mode or route hides it", ErrNotAllowed, caller.Session, chat)
 }
 
 // ChatMessages is the result of ReadChat.
@@ -117,22 +127,38 @@ type ChatMessages struct {
 	Messages []model.Message `json:"messages"`
 }
 
-// ReadChat returns the latest limit messages of a chat.
+// ReadChat returns the latest limit messages of a chat that caller may read.
 func (c *Core) ReadChat(ctx context.Context, caller Caller, ref string, limit int) (ChatMessages, error) {
 	jid, err := c.resolveChat(ctx, ref)
 	if err != nil {
 		return ChatMessages{}, err
 	}
-	if !c.canRead(ctx, caller, jid) {
-		return ChatMessages{}, fmt.Errorf("%w: %s may not read %s; ask the owner to route it or add an allow rule",
-			ErrNotAllowed, caller.Session, jid)
+	v, ok := c.viewFor(ctx, caller, jid)
+	if !ok {
+		return ChatMessages{}, errHidden(caller, jid)
 	}
 	chat, err := c.st.Chat(ctx, jid)
 	if err != nil {
 		return ChatMessages{}, err
 	}
-	msgs, err := c.st.Messages(ctx, jid, limit)
+	msgs, err := c.viewMessages(ctx, v, jid, limit)
 	return ChatMessages{Chat: chat, Messages: msgs}, err
+}
+
+// visibleMessage returns a stored message that caller may read.
+func (c *Core) visibleMessage(ctx context.Context, caller Caller, chat, id string) (model.Message, error) {
+	v, ok := c.viewFor(ctx, caller, chat)
+	if !ok {
+		return model.Message{}, errHidden(caller, chat)
+	}
+	m, found, err := c.st.Message(ctx, chat, id)
+	if err != nil {
+		return m, err
+	}
+	if !found || !c.sees(ctx, v, m) {
+		return m, fmt.Errorf("no message %s that %s may read in %s", id, caller.Session, chat)
+	}
+	return m, nil
 }
 
 // Search returns messages that contain query, in the chats that caller may read.
@@ -150,16 +176,30 @@ func (c *Core) Search(ctx context.Context, caller Caller, query, ref string, lim
 		return nil, err
 	}
 	readable := found[:0]
+	views := map[string]*view{}
 	for _, m := range found {
-		if c.canRead(ctx, caller, m.Chat) {
+		if v := c.cachedView(ctx, caller, m.Chat, views); v != nil && c.sees(ctx, *v, m) {
 			readable = append(readable, m)
 		}
 	}
 	return readable, nil
 }
 
-// Send sends text to a chat for caller, following the send rules. With the mode ask it returns
-// at once, and the message goes out when the owner answers yes.
+// cachedView returns what caller may read of chat, or nil, and keeps it in views.
+func (c *Core) cachedView(ctx context.Context, caller Caller, chat string, views map[string]*view) *view {
+	if v, ok := views[chat]; ok {
+		return v
+	}
+	var v *view
+	if seen, ok := c.viewFor(ctx, caller, chat); ok {
+		v = &seen
+	}
+	views[chat] = v
+	return v
+}
+
+// Send sends text to a chat for caller, following the send rules. With the permission ask it
+// returns at once, and the message goes out when the owner answers yes.
 func (c *Core) Send(ctx context.Context, caller Caller, ref, text string) (string, error) {
 	jid, err := c.resolveChat(ctx, ref)
 	if err != nil {
@@ -185,11 +225,11 @@ func (c *Core) prefixed(ctx context.Context, caller Caller, jid, text string) st
 // and refuses for deny.
 func (c *Core) gate(ctx context.Context, caller Caller, jid, what, detail string,
 	act func(ctx context.Context) (string, error)) (string, error) {
-	mode, err := c.mode(ctx, caller, jid)
+	permission, err := c.permission(ctx, caller, jid)
 	if err != nil {
 		return "", err
 	}
-	switch mode {
+	switch permission {
 	case model.Allow:
 		return act(ctx)
 	case model.Ask:
@@ -219,12 +259,9 @@ func (c *Core) React(ctx context.Context, caller Caller, ref, id, emoji string) 
 	if err != nil {
 		return "", err
 	}
-	m, found, err := c.st.Message(ctx, jid, id)
+	m, err := c.visibleMessage(ctx, caller, jid, id)
 	if err != nil {
 		return "", err
-	}
-	if !found {
-		return "", fmt.Errorf("no stored message %s in %s", id, jid)
 	}
 	sender := m.RawSender
 	if sender == "" {
@@ -241,14 +278,11 @@ func (c *Core) DownloadMedia(ctx context.Context, caller Caller, ref, id string)
 	if err != nil {
 		return "", err
 	}
-	if !c.canRead(ctx, caller, jid) {
-		return "", fmt.Errorf("%w: %s may not read %s", ErrNotAllowed, caller.Session, jid)
-	}
-	m, found, err := c.st.Message(ctx, jid, id)
+	m, err := c.visibleMessage(ctx, caller, jid, id)
 	if err != nil {
 		return "", err
 	}
-	if !found || len(m.Raw) == 0 {
+	if len(m.Raw) == 0 {
 		return "", fmt.Errorf("message %s in %s has no media", id, jid)
 	}
 	data, err := c.wa.Download(ctx, m.Raw)
@@ -296,29 +330,62 @@ func safeRune(r rune) rune {
 	return '_'
 }
 
-// RouteHere asks the owner to route a chat to the calling session.
-func (c *Core) RouteHere(ctx context.Context, caller Caller, ref, prefix string, addressed bool) (string, error) {
+// RouteHere asks the owner to route a chat to the calling session in mode, which defaults to all.
+func (c *Core) RouteHere(ctx context.Context, caller Caller, ref, prefix, mode string) (string, error) {
 	jid, err := c.resolveChat(ctx, ref)
 	if err != nil {
 		return "", err
 	}
-	route := model.Route{Chat: jid, Session: caller.Session, Prefix: prefix, Addressed: addressed}
+	m, err := routeMode(mode)
+	if err != nil {
+		return "", err
+	}
+	route := model.Route{Chat: jid, Session: caller.Session, Prefix: prefix}
 	if caller.owner {
-		return "routed", c.st.SetRoute(ctx, route)
+		return c.setRoute(ctx, route, m)
 	}
 	chat, _ := c.st.Chat(ctx, jid)
-	code := c.ask("", fmt.Sprintf("%s wants the chat %s routed to it.", caller.Session, chat.Label()),
+	code := c.ask("", fmt.Sprintf("%s wants the chat %s routed to it in the %s mode.", caller.Session, chat.Label(), m),
 		func(ctx context.Context, allow bool) string {
 			if !allow {
 				return "Not routed."
 			}
-			if err := c.st.SetRoute(ctx, route); err != nil {
+			reply, err := c.setRoute(ctx, route, m)
+			if err != nil {
 				return "Failed: " + err.Error()
 			}
-			c.wakeAll()
-			return fmt.Sprintf("%s now goes to %s.", chat.Label(), caller.Session)
+			return reply
 		})
 	return fmt.Sprintf("waiting for the owner's approval in the self-chat (code %s)", code), nil
+}
+
+// routeMode reads the mode of a new route, which defaults to all.
+func routeMode(s string) (model.Mode, error) {
+	if s == "" {
+		return model.ModeAll, nil
+	}
+	return model.ParseMode(s)
+}
+
+// setRoute stores a route with its chat's mode.
+func (c *Core) setRoute(ctx context.Context, route model.Route, mode model.Mode) (string, error) {
+	if err := c.st.SetRoute(ctx, route); err != nil {
+		return "", err
+	}
+	if err := c.st.SetChatMode(ctx, model.ChatMode{Chat: route.Chat, Mode: mode}); err != nil {
+		return "", err
+	}
+	c.wakeAll()
+	chat, _ := c.st.Chat(ctx, route.Chat)
+	return fmt.Sprintf("%s now goes to %s in the %s mode.", chatLabel(chat), route.Session, mode), nil
+}
+
+// chatLabel names a chat for the owner, with "every chat" for "*".
+func chatLabel(chat model.Chat) string {
+	if chat.JID == everyChat {
+		return "Every chat"
+	}
+	return chat.Label()
 }
 
 // Chats lists chats whose name or JID contains query.

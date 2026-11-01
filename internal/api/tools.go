@@ -55,9 +55,9 @@ type MessageArgs struct {
 
 // RouteArgs are the arguments of route_here.
 type RouteArgs struct {
-	Chat      string `json:"chat"`
-	Prefix    string `json:"prefix,omitempty"`
-	Addressed bool   `json:"addressed,omitempty"`
+	Chat   string `json:"chat"`
+	Prefix string `json:"prefix,omitempty"`
+	Mode   string `json:"mode,omitempty"`
 }
 
 // QueryArgs are the arguments of list_chats.
@@ -115,7 +115,7 @@ func tools() map[string]tool {
 			return Text{path}, err
 		}),
 		"route_here": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a RouteArgs) (any, error) {
-			text, err := c.RouteHere(ctx, caller, a.Chat, a.Prefix, a.Addressed)
+			text, err := c.RouteHere(ctx, caller, a.Chat, a.Prefix, a.Mode)
 			return Text{text}, err
 		}),
 		"list_sessions": define(false, func(ctx context.Context, c *core.Core, _ core.Caller, _ struct{}) (any, error) {

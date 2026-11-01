@@ -8,14 +8,14 @@ import (
 
 func TestDecide(t *testing.T) {
 	rules := []Rule{
-		{Session: "*", Chat: "*", Mode: Deny},
-		{Session: "*", Chat: "sam", Mode: Ask},
-		{Session: "bot", Chat: "*", Mode: Allow},
-		{Session: "bot", Chat: "sam", Mode: Deny},
+		{Session: "*", Chat: "*", Permission: Deny},
+		{Session: "*", Chat: "sam", Permission: Ask},
+		{Session: "bot", Chat: "*", Permission: Allow},
+		{Session: "bot", Chat: "sam", Permission: Deny},
 	}
 	cases := []struct {
 		session, chat string
-		want          Mode
+		want          Permission
 	}{
 		{"bot", "sam", Deny},
 		{"bot", "ann", Allow},
@@ -35,12 +35,44 @@ func TestDecide(t *testing.T) {
 	}
 }
 
+func TestParsePermission(t *testing.T) {
+	if p, err := ParsePermission("ask"); err != nil || p != Ask {
+		t.Errorf("ParsePermission(ask) = %s, %v", p, err)
+	}
+	if _, err := ParsePermission("maybe"); err == nil {
+		t.Error("ParsePermission(maybe) gave no error")
+	}
+}
+
 func TestParseMode(t *testing.T) {
-	if m, err := ParseMode("ask"); err != nil || m != Ask {
-		t.Errorf("ParseMode(ask) = %s, %v", m, err)
+	if m, err := ParseMode("Window"); err != nil || m != ModeWindow {
+		t.Errorf("ParseMode(Window) = %s, %v", m, err)
 	}
 	if _, err := ParseMode("maybe"); err == nil {
 		t.Error("ParseMode(maybe) gave no error")
+	}
+}
+
+func TestDurations(t *testing.T) {
+	for in, want := range map[string]time.Duration{"30m": 30 * time.Minute, "1H": time.Hour, "1d": 24 * time.Hour, "1h30m": 90 * time.Minute} {
+		if d, err := ParseDuration(in); err != nil || d != want {
+			t.Errorf("ParseDuration(%q) = %v, %v", in, d, err)
+		}
+	}
+	for _, in := range []string{"", "0m", "-1h", "xd", "soon"} {
+		if _, err := ParseDuration(in); err == nil {
+			t.Errorf("ParseDuration(%q) gave no error", in)
+		}
+	}
+	for d, want := range map[time.Duration]string{time.Minute: "1 minute", 30 * time.Minute: "30 minutes",
+		time.Hour: "1 hour", 90 * time.Minute: "90 minutes", 48 * time.Hour: "2 days"} {
+		if got := FormatDuration(d); got != want {
+			t.Errorf("FormatDuration(%v) = %q, want %q", d, got, want)
+		}
+	}
+	w := Window{From: time.Unix(100, 0), Until: time.Unix(200, 0)}
+	if !w.Covers(time.Unix(100, 0)) || !w.Covers(time.Unix(200, 0)) || w.Covers(time.Unix(201, 0)) || w.Covers(time.Unix(99, 0)) {
+		t.Error("Window.Covers is wrong at its edges")
 	}
 }
 

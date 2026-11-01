@@ -259,7 +259,7 @@ func (c *Core) waiting(ctx context.Context, name string, extra []string, limit i
 	if err != nil {
 		return batch{}, err
 	}
-	all, err := c.st.Events(ctx, cursor, c.targets(name, extra, routes).query(), limit)
+	all, err := c.st.Events(ctx, cursor, c.targets(ctx, name, extra, routes).query(), limit)
 	if err != nil {
 		return batch{}, err
 	}
@@ -268,25 +268,30 @@ func (c *Core) waiting(ctx context.Context, name string, extra []string, limit i
 	if routes, err = c.st.Routes(ctx); err != nil {
 		return batch{}, err
 	}
-	t := c.targets(name, extra, routes)
+	t := c.targets(ctx, name, extra, routes)
 	b := batch{all: all}
+	views := map[string]view{}
 	for _, e := range all {
-		if c.wanted(ctx, name, t, e) {
+		if c.wanted(ctx, t, views, e) {
 			b.keep = append(b.keep, e)
 		}
 	}
 	return b, nil
 }
 
-// targets is the set of chats whose messages a session receives.
+// targets is the set of chats that a session handles. Chats in full come with every message:
+// the extra chats of the owner's own watch, and home's self-chat. The chats' modes filter the
+// rest.
 type targets struct {
 	chats     map[string]model.Route
 	everyChat *model.Route
 	elsewhere map[string]bool
+	full      map[string]bool
 }
 
-func (c *Core) targets(name string, extra []string, routes []model.Route) targets {
-	t := targets{chats: map[string]model.Route{}, elsewhere: map[string]bool{}}
+func (c *Core) targets(ctx context.Context, name string, extra []string, routes []model.Route) targets {
+	t := targets{chats: map[string]model.Route{}, elsewhere: map[string]bool{}, full: map[string]bool{}}
+	t.addAgentChat(c.agentChat(ctx, name), name, routes)
 	for _, r := range routes {
 		switch {
 		case r.Session != name:
@@ -300,14 +305,34 @@ func (c *Core) targets(name string, extra []string, routes []model.Route) target
 	}
 	for _, chat := range extra {
 		t.chats[chat] = model.Route{Chat: chat, Session: name}
+		t.full[chat] = true
 	}
 	// Only home gets the self-chat, also through a route for every chat.
 	if name == homeName {
 		t.chats[c.wa.SelfChat()] = model.Route{Chat: c.wa.SelfChat(), Session: name}
+		t.full[c.wa.SelfChat()] = true
 	} else {
 		t.elsewhere[c.wa.SelfChat()] = true
 	}
 	return t
+}
+
+// agentChat returns the chat whose own agent is session, or "".
+func (c *Core) agentChat(ctx context.Context, session string) string {
+	chat, err := c.st.AgentChat(ctx, session)
+	if err != nil {
+		c.log.Warn("read chat agent", "session", session, "err", err)
+	}
+	return chat
+}
+
+// addAgentChat adds a chat agent's own chat, unless a route sends that chat, or every chat,
+// elsewhere.
+func (t targets) addAgentChat(chat, name string, routes []model.Route) {
+	if chat == "" || routeFor(routes, chat) != "" {
+		return
+	}
+	t.chats[chat] = model.Route{Chat: chat, Session: name}
 }
 
 func (t targets) query() []string {
@@ -333,27 +358,27 @@ func (t targets) route(chat string) (model.Route, bool) {
 }
 
 // wanted reports whether event e goes to the session: a new message from a person, in a chat
-// routed to the session, and addressed to the agent when the route asks for that.
-func (c *Core) wanted(ctx context.Context, name string, t targets, e model.Event) bool {
-	if !pushable(e) {
+// that the session handles, that the chat's mode shows. views caches each chat's view for one
+// batch.
+func (c *Core) wanted(ctx context.Context, t targets, views map[string]view, e model.Event) bool {
+	chat := e.Message.Chat
+	if _, ok := t.route(chat); !ok || !pushable(e) {
 		return false
 	}
-	r, ok := t.route(e.Message.Chat)
-	return ok && (!r.Addressed || c.addressed(ctx, name, e.Message))
+	v, ok := views[chat]
+	if !ok {
+		v = fullView
+		if !t.full[chat] {
+			v = c.chatView(ctx, chat)
+		}
+		views[chat] = v
+	}
+	return c.sees(ctx, v, e.Message)
 }
 
 // pushable reports whether an event is a new message that a person wrote.
 func pushable(e model.Event) bool {
 	return e.Kind == model.New && (e.Message.Role == model.RoleOwner || e.Message.Role == model.RoleOther)
-}
-
-// addressed reports whether m names the agents or the session, or answers an agent message.
-func (c *Core) addressed(ctx context.Context, name string, m model.Message) bool {
-	if mentions(m.Text, c.AgentName(ctx)) || mentions(m.Text, name) {
-		return true
-	}
-	sent, _ := c.st.IsSent(ctx, m.ReplyTo)
-	return m.ReplyTo != "" && sent
 }
 
 // Sessions lists every known session with its online state and waiting messages.

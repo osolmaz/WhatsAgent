@@ -38,12 +38,15 @@ In your WhatsApp "Message Yourself" chat, send `/help` for the commands. The mos
 | `/status` | WhatsApp link, home, sessions and waiting messages |
 | `/home claude` | Run home on Claude Code; `/home codex`, `/home off` and `/home new` also work |
 | `/chats <query>` | Find a chat by name |
-| `/route <chat> <session>` | Send a chat's new messages to a session |
+| `/route <chat> <session> [<mode>]` | Let a session handle a chat; the mode defaults to `all` |
+| `/mode <chat> off\|keyword\|window\|all` | Set what agents see of a chat; `*` sets every chat |
 | `/allow <session> <chat>` | Let a session send to a chat without asking; `/ask` and `/deny` set the other rules |
 
 When a session wants to send somewhere its rules do not allow, WhatsAgent asks you in the self-chat, and you answer `yes <code>` or `no <code>`.
 
-Agents write only their message, and WhatsAgent puts a prefix in front of it so people can tell the agent's messages from yours. `/name Bob` names the agents, and the name is also their trigger word: in a chat whose route takes only addressed messages, a message reaches the session when it contains "Bob" as a word or answers an agent's message. `/prefix` sets the prefix as any text, with `{name}` and `{session}` filled in, `\n` for a line break, and WhatsApp formatting such as `*bold*`. For example, `/prefix 🤖 *{name}*:` makes a message read "🤖 **Bob**: On it.", and `/prefix off` turns the prefix off. A route can set its own prefix for one chat.
+Each chat has a mode that decides what an agent sees of it. In the default `window` mode, the agent sees nothing until you name it in the chat, for example "Bob, what do you think?". Then it can read the last 30 minutes and every new message for an hour. Naming it again extends that hour, and "Bob stop watching" ends it. The agent says in the chat when it starts monitoring and when it is done. Only your own messages can call it, never other people's. The `keyword` mode shows the agent only your messages that name it, `all` shows everything, and `off` shows nothing. A chat without a route gets its own agent, which can read only what the chat's mode shows. `/window` changes the window length, the lookback, the stop phrases and the two messages. The [chat modes specification](docs/2026-11-01-chat-modes.md) has the details.
+
+Agents write only their message, and WhatsAgent puts a prefix in front of it so people can tell the agent's messages from yours. `/name Bob` names the agents, and the name is also their trigger word. `/prefix` sets the prefix as any text, with `{name}` and `{session}` filled in, `\n` for a line break, and WhatsApp formatting such as `*bold*`. For example, `/prefix 🤖 *{name}*:` makes a message read "🤖 **Bob**: On it.", and `/prefix off` turns the prefix off. A route can set its own prefix for one chat.
 
 A session receives its routed messages in one of three ways:
 

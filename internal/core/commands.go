@@ -27,8 +27,13 @@ func init() {
 		{"status", "/status", "Show the WhatsApp link, home, sessions and waiting messages.", false, cmdStatus},
 		{"sessions", "/sessions", "List sessions with their harness, folder and push state.", false, cmdSessions},
 		{"chats", "/chats <query>", "Find chats by name.", false, cmdChats},
-		{"route", "/route <chat> <session>", "Send a chat's new messages to a session. <chat> can be *.", true, cmdRoute},
-		{"unroute", "/unroute <chat>", "Stop sending a chat's messages to any session.", true, cmdUnroute},
+		{"route", "/route <chat> <session> [<mode>]", "Let a session handle a chat, in a mode that defaults to all. " +
+			"<chat> can be *.", true, cmdRoute},
+		{"unroute", "/unroute <chat>", "Give a chat back to its own agent, in the mode of every chat.", true, cmdUnroute},
+		{"mode", "/mode [<chat> off|keyword|window|all [<length> [<lookback>]]]", "Show the chat modes, or set what " +
+			"agents see of a chat. <chat> can be *.", true, cmdMode},
+		{"window", "/window [length|lookback|stop|start|end <value>|close <chat>]", "Show or change the window " +
+			"settings, or close a chat's window.", true, cmdWindow},
 		{"routes", "/routes", "List the routes.", false, cmdRoutes},
 		{"rename", "/rename <session> <name>", "Give a session a new name.", true, cmdRename},
 		{"home", "/home claude|codex|off|new", "Run home on Claude Code or Codex, stop it, or start it fresh.", true, cmdHome},
@@ -104,6 +109,9 @@ func cmdStatus(ctx context.Context, c *Core, _ string) (string, error) {
 	}
 	fmt.Fprintf(&b, "\nRoutes: %d, send rules: %d", s.Routes, s.Rules)
 	fmt.Fprintf(&b, "\nAgent name: %s", s.AgentName)
+	for _, w := range s.Windows {
+		fmt.Fprintf(&b, "\nOpen window: %s", w)
+	}
 	return b.String(), nil
 }
 
@@ -119,6 +127,7 @@ type Status struct {
 	Routes    int      `json:"routes"`
 	Rules     int      `json:"rules"`
 	AgentName string   `json:"agent_name"`
+	Windows   []string `json:"windows"`
 }
 
 // Status returns a summary of WhatsAgent's state.
@@ -135,10 +144,14 @@ func (c *Core) Status(ctx context.Context) (Status, error) {
 	if err != nil {
 		return Status{}, err
 	}
+	windows, err := c.windowLines(ctx)
+	if err != nil {
+		return Status{}, err
+	}
 	name := c.AgentName(ctx)
 	c.mu.Lock()
 	s := Status{WhatsApp: c.state, SelfChat: c.wa.SelfChat(), OwnerName: c.wa.OwnName(), Home: c.homeOn,
-		Routes: len(routes), Rules: len(rules), AgentName: name}
+		Routes: len(routes), Rules: len(rules), AgentName: name, Windows: windows}
 	c.mu.Unlock()
 	for _, info := range sessions {
 		s.addSession(info)
@@ -213,6 +226,12 @@ func (c *Core) chatRef(ctx context.Context, ref string) (string, error) {
 }
 
 func cmdRoute(ctx context.Context, c *Core, args string) (string, error) {
+	mode := model.ModeAll
+	if rest, last, err := splitLast(args); err == nil {
+		if m, err := model.ParseMode(last); err == nil {
+			args, mode = rest, m
+		}
+	}
 	ref, session, err := splitLast(args)
 	if err != nil {
 		return "", err
@@ -221,14 +240,11 @@ func cmdRoute(ctx context.Context, c *Core, args string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := c.st.SetRoute(ctx, model.Route{Chat: jid, Session: session}); err != nil {
-		return "", err
-	}
-	c.wakeAll()
-	chat, _ := c.st.Chat(ctx, jid)
-	return fmt.Sprintf("%s now goes to %s.", chat.Label(), session), nil
+	return c.setRoute(ctx, model.Route{Chat: jid, Session: session}, mode)
 }
 
+// cmdUnroute removes a chat's route and its own mode, so its own agent handles it again in the
+// mode of every chat.
 func cmdUnroute(ctx context.Context, c *Core, ref string) (string, error) {
 	jid, err := c.chatRef(ctx, ref)
 	if err != nil {
@@ -238,19 +254,23 @@ func cmdUnroute(ctx context.Context, c *Core, ref string) (string, error) {
 	if err != nil || !removed {
 		return fmt.Sprintf("%s had no route.", jid), err
 	}
-	return fmt.Sprintf("%s no longer goes to a session.", jid), nil
+	if err := c.st.DeleteChatMode(ctx, jid); err != nil {
+		return "", err
+	}
+	c.wakeAll()
+	return fmt.Sprintf("%s no longer goes to a session. The mode of every chat applies to it again.", jid), nil
 }
 
 func cmdRoutes(ctx context.Context, c *Core, _ string) (string, error) {
 	routes, err := c.st.Routes(ctx)
 	if err != nil || len(routes) == 0 {
-		return "No routes. Only the self-chat reaches an agent, through home.", err
+		return "No routes. Each chat's own agent handles it, in the chat's mode.", err
 	}
 	model.SortRoutes(routes)
 	lines := make([]string, len(routes))
 	for i, r := range routes {
 		chat, _ := c.st.Chat(ctx, r.Chat)
-		lines[i] = fmt.Sprintf("%s -> %s", chat.Label(), r.Session)
+		lines[i] = fmt.Sprintf("%s -> %s (%s)", chatLabel(chat), r.Session, c.chatMode(ctx, r.Chat).Mode)
 	}
 	return strings.Join(lines, "\n"), nil
 }
@@ -266,31 +286,32 @@ func cmdRename(ctx context.Context, c *Core, args string) (string, error) {
 	return fmt.Sprintf("%s is now %s. Its routes and rules moved with it.", fields[0], fields[1]), nil
 }
 
-func ruleCommand(mode model.Mode) func(ctx context.Context, c *Core, args string) (string, error) {
+func ruleCommand(permission model.Permission) func(ctx context.Context, c *Core, args string) (string, error) {
 	return func(ctx context.Context, c *Core, args string) (string, error) {
 		session, ref, ok := strings.Cut(strings.TrimSpace(args), " ")
 		if !ok {
-			return "", fmt.Errorf("use /%s <session> <chat>", mode)
+			return "", fmt.Errorf("use /%s <session> <chat>", permission)
 		}
 		jid, err := c.chatRef(ctx, ref)
 		if err != nil {
 			return "", err
 		}
-		if err := c.st.SetRule(ctx, model.Rule{Session: session, Chat: jid, Mode: mode}); err != nil {
+		if err := c.st.SetRule(ctx, model.Rule{Session: session, Chat: jid, Permission: permission}); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Rule: %s %s -> %s.", mode, session, jid), nil
+		return fmt.Sprintf("Rule: %s %s -> %s.", permission, session, jid), nil
 	}
 }
 
 func cmdRules(ctx context.Context, c *Core, _ string) (string, error) {
 	rules, err := c.st.Rules(ctx)
 	if err != nil || len(rules) == 0 {
-		return "No send rules. Sessions may send to their routed chats and the self-chat, and every other send asks you.", err
+		return "No send rules. Sessions may send to the self-chat, and to the chats they handle while the " +
+			"chat's mode lets them see it. Every other send asks you.", err
 	}
 	lines := make([]string, len(rules))
 	for i, r := range rules {
-		lines[i] = fmt.Sprintf("%s %s -> %s", r.Mode, r.Session, r.Chat)
+		lines[i] = fmt.Sprintf("%s %s -> %s", r.Permission, r.Session, r.Chat)
 	}
 	return strings.Join(lines, "\n"), nil
 }
@@ -363,8 +384,11 @@ func (c *Core) startHome(ctx context.Context, harness string) error {
 		return err
 	}
 	homeCtx, cancel := context.WithCancel(c.ctx)
-	pusher, err := factory(homeCtx, HomeHost{
+	pusher, err := factory(homeCtx, AgentHost{
+		Session:       homeName,
+		Name:          c.AgentName(ctx),
 		Post:          c.PostHome,
+		Fail:          c.say,
 		SessionID:     id,
 		SaveSessionID: func(id string) error { return c.st.SetSetting(c.ctx, key, id) },
 		Approve: func(ctx context.Context, tool, input string) bool {

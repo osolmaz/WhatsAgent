@@ -245,7 +245,7 @@ func TestHome(t *testing.T) {
 	defer cancel()
 	posts := make(chan string, 5)
 	saved := ""
-	host := core.HomeHost{Post: func(text string) { posts <- text }, SaveSessionID: func(id string) error { saved = id; return nil }}
+	host := core.AgentHost{Post: func(text string) { posts <- text }, SaveSessionID: func(id string) error { saved = id; return nil }}
 	home, err := a.NewHome(ctx, host, "/home", "be home", format)
 	if err != nil || home.ThreadID() != "home-1" || saved != "home-1" {
 		t.Fatalf("NewHome = %v, %v, saved %q", home, err, saved)
@@ -291,7 +291,7 @@ func TestNoDaemon(t *testing.T) {
 	if _, err := a.Threads(context.Background()); err == nil {
 		t.Error("Threads without a daemon gave no error")
 	}
-	if _, err := a.NewHome(context.Background(), core.HomeHost{}, "/", "", format); err == nil {
+	if _, err := a.NewHome(context.Background(), core.AgentHost{}, "/", "", format); err == nil {
 		t.Error("NewHome without a daemon gave no error")
 	}
 }

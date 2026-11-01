@@ -25,10 +25,16 @@ Code and docs use one name for each concept:
 | owner | The person whose WhatsApp account WhatsAgent is linked to. |
 | self-chat | The owner's "Message Yourself" chat, which is WhatsAgent's control room. |
 | harness | An agent program, such as Claude Code or Codex. |
-| session | One running agent session in a harness, such as a Claude Code session or a Codex thread. The owner opens it. |
-| home | The one session that WhatsAgent starts and keeps running. |
-| route | A link from one WhatsApp chat to one session. |
-| send rule | A rule that decides whether a session may send to a chat: `allow`, `ask` or `deny`. |
+| session | One running agent session in a harness, such as a Claude Code session or a Codex thread. The owner opens it, or WhatsAgent starts it for home or a chat agent. |
+| home | The owner's assistant in the self-chat, which WhatsAgent starts and keeps running. |
+| chat agent | A session that WhatsAgent runs for one chat without a route, and that sees only what the chat's mode shows. |
+| route | A link from one WhatsApp chat to the session that handles it. |
+| mode | What the session that handles a chat receives from it and may read in it: `off`, `keyword`, `window` or `all`. |
+| window | A time span in which the window mode shows a chat. The owner opens, extends and ends it with triggers. |
+| agent name | The agents' name, such as Bob, which is also the trigger word. |
+| trigger | A message that the owner typed in a chat other than the self-chat that names the agents or answers an agent message. |
+| prefix | The text that WhatsAgent puts in front of every message that an agent sends. |
+| send rule | A rule that decides whether a session may send to a chat. Its permission is `allow`, `ask` or `deny`. |
 | command | A self-chat message that starts with `/`. WhatsAgent handles it, and no agent sees it. |
 | check-in | A session becoming known to WhatsAgent, through the WhatsAgent MCP server or through the harness's own API. |
 | adapter | The WhatsAgent code for one harness. It handles check-in, pushes, approval prompts and home for that harness. |
@@ -75,7 +81,9 @@ Commands start with `/`. WhatsAgent answers them at once without calling a model
 | `/status` | Show the WhatsApp link, home, checked-in sessions and waiting messages. |
 | `/sessions` | List sessions with their harness, name, folder and push status. |
 | `/chats <query>` | Find a chat by name, for use in `/route`. |
-| `/route <chat> <session>` | Send a chat's new messages to a session. |
+| `/route <chat> <session> [<mode>]` | Let a session handle a chat, in a mode that defaults to `all`. |
+| `/mode <chat> <mode>` | Set what agents see of a chat. See the [chat modes specification](2026-11-01-chat-modes.md). |
+| `/window` | Show or change the window settings, or close a chat's window. |
 | `/unroute <chat>` | Stop sending a chat's messages to any session. |
 | `/routes` | List the routes. |
 | `/rename <session> <name>` | Give a session a stable name. |
@@ -108,9 +116,9 @@ Routes point at session names, so a route survives when its session restarts. A 
 
 ## Routes
 
-By default, only the self-chat reaches an agent, through home. WhatsAgent stores every other chat, and home can read them when asked ("what did Sam say today?"), but no session gets them pushed.
+WhatsAgent stores every chat, and home can read them all when asked ("what did Sam say today?"). Which session handles a chat, and what it sees of it, is up to the owner: each chat has a mode, and the [chat modes specification](2026-11-01-chat-modes.md) defines the modes, the window mode's lifecycle and the chat agents.
 
-A route links one chat to one session. Each chat has at most one route, so it is always clear which session answers it. Owners who want everything in one place can send every chat to home with `/route * home`. A route can deliver every message or only the messages addressed to the agent, meaning messages that contain the agents' name or the session's name as a word, or reply to an agent message. It can also set its own prefix and choose whether the session may reply or only read.
+A route links one chat to one session. Each chat has at most one route, so it is always clear which session answers it. Owners who want everything in one place can send every chat to home with `/route * home`. A chat without a route gets its own chat agent, which WhatsAgent runs. Setting a route also sets the chat's mode, which defaults to `all`. A route can also set its own prefix.
 
 The owner names the agents with `/name`, and the name doubles as their trigger word. Agents write only the message itself. WhatsAgent puts the agent prefix in front of every message that a session sends, through the MCP `send` tool or through `whatsagent send --session <name>`, so no skill or prompt has to tell an agent how to sign. The owner sets the prefix with `/prefix` as any text: `{name}` and `{session}` are filled in, `\n` becomes a line break, and WhatsApp formatting such as `*bold*` passes through. The default is `🤖 *{name}*:`, a route's own prefix wins for its chat, and `/prefix off` turns the prefix off. Text that already starts with the prefix is not prefixed twice. The owner's own sends, from the phone or from `whatsagent send` without `--session`, go out as written.
 
@@ -141,7 +149,7 @@ The WhatsAgent MCP endpoint serves tools and events. The tools act on behalf of 
 | `send` | Send text to a chat. |
 | `react` | React to a message. |
 | `download_media` | Save a media file into a folder that WhatsAgent owns. |
-| `route_here` | Route a chat to the calling session. |
+| `route_here` | Ask the owner to route a chat to the calling session, in a mode. |
 | `list_sessions` | List checked-in sessions. |
 
 The MCP server also has `list_chats` for finding a chat, `command` for running a self-chat command (commands that change routes or rules wait for the owner's yes), and `approve`, which home uses as its permission prompt tool.
@@ -181,9 +189,9 @@ Every row can use the MCP tools. When a harness supports MCP Events, its adapter
 
 ## Send rules
 
-Send rules decide which sessions may send to which chats through the `send` and `react` tools. A rule names a session and a chat, either of which can be `*` to mean all of them, plus a mode. The mode `allow` sends the message. `ask` posts it in the self-chat first and sends it only after the owner answers `yes`. `deny` makes the tool return an error.
+Send rules decide which sessions may send to which chats through the `send` and `react` tools. A rule names a session and a chat, either of which can be `*` to mean all of them, plus a permission. The permission `allow` sends the message. `ask` posts it in the self-chat first and sends it only after the owner answers `yes`. `deny` makes the tool return an error.
 
-When several rules match a send, the most specific one wins, in this order: the session and the chat, the session and `*`, `*` and the chat, and finally `*` and `*`. Without any rule, a session may send to the chats routed to it and to the self-chat, and every other send uses `ask`. So `/allow * <chat>` lets every session message one chat, and `/allow * *` lets any session message any chat. A session can read its routed chats and the self-chat, plus every chat it has an `allow` rule for.
+When several rules match a send, the most specific one wins, in this order: the session and the chat, the session and `*`, `*` and the chat, and finally `*` and `*`. Without any rule, a session may send to the self-chat, and to a chat it handles while the chat's mode lets it see the chat; every other send uses `ask`. So `/allow * <chat>` lets every session message one chat, and `/allow * *` lets any session message any chat. Send rules decide only who may write. Reading follows routes and modes: a session reads only the chats it handles, as their modes show them, and never the self-chat.
 
 The owner can set rules in the self-chat or from the CLI with the matching `whatsagent` subcommands. Sessions use the MCP admin tools, and the desktop app will offer the same later. All of these call the command core. A session that asks for a rule covering itself, such as "let this session message Sam", gets the rule only after the owner confirms it in the self-chat.
 
@@ -258,7 +266,7 @@ whatsmeow covers the WhatsApp protocol only. WhatsAgent has to build the message
 
 ## Build order
 
-The build went straight to the final setup. Steps 1 to 8 are built and covered by tests, and the owner's account moved to WhatsAgent on 1 November 2026, with self-chat delivery checked live.
+The build went straight to the final setup. Steps 1 to 9 are built and covered by tests, and the owner's account moved to WhatsAgent on 1 November 2026, with self-chat delivery checked live.
 
 1. Set up the Go module, with Slophammer for Go and CI on Linux and macOS.
 2. Build the daemon core, which covers linking with QR codes, `--phone` and `--import`, plus the stores, the event log, the command core and the first self-chat commands.
@@ -268,9 +276,10 @@ The build went straight to the final setup. Steps 1 to 8 are built and covered b
 6. Add home on both harnesses.
 7. Add approval relay for both harnesses, and merged status lines.
 8. Add `whatsagent send`, `export`, `changes`, `react` and `media` for scripts.
-9. Check live that an attached Codex TUI shows pushed turns, and that Claude Code Desktop registers the channel.
-10. Build the desktop app on the daemon API.
-11. Move pushes to MCP Events for each harness that implements the extension once it is merged.
+9. Add the agent name and prefix, the chat modes with the window mode, and chat agents, as the [chat modes specification](2026-11-01-chat-modes.md) defines them.
+10. Check live that an attached Codex TUI shows pushed turns, and that Claude Code Desktop registers the channel.
+11. Build the desktop app on the daemon API.
+12. Move pushes to MCP Events for each harness that implements the extension once it is merged.
 
 ## References
 

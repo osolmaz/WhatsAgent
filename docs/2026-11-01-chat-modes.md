@@ -1,0 +1,120 @@
+---
+date: 2026-11-01
+author: Onur Solmaz <2453968+osolmaz@users.noreply.github.com>
+title: Chat modes specification
+tags: [spec, modes, windows, triggers, prefix, chat-agents]
+---
+
+# Chat modes specification
+
+## TL;DR
+
+Each chat has a mode that decides what an agent receives from it and may read in it: `off`, `keyword`, `window` or `all`. The default for every chat is `window`. In that mode the agent sees nothing until the owner names it, for example "Bob, what do you think?". That message gives the agent one hour of access, including the 30 minutes before the message. Naming it again extends access by one hour, "Bob stop watching" ends it, and the agent says when it starts and when it is done. Only the owner's own messages can call the agent, and each chat without a route gets its own agent, which can only read what the chat's mode shows it.
+
+## Introduction
+
+This document specifies how the owner controls what WhatsAgent's agents see of each WhatsApp chat. It covers the agents' name and trigger word, the prefix on agent messages, the four chat modes, the window mode's lifecycle, the agent that handles each chat, the commands, and where the rules are enforced. The [plan](2026-10-31-whatsagent-plan.md) describes the rest of WhatsAgent.
+
+The idea behind the design is that the owner can give an agent temporary access to a chat from inside that chat, by naming the agent, without opening the self-chat or a terminal. Because the agent acts from the owner's account, only the owner can grant that access. In a group, other people can name the agent as often as they like, and nothing happens.
+
+## Terms
+
+- **Agent name**: the name that the owner gives the agents with `/name`, such as Bob. The default is "Agent".
+- **Trigger word**: the agent name. The owner sets one word for both.
+- **Trigger**: a message that the owner typed on their phone, in any chat other than the self-chat, that contains the agent name as a whole word in any case ("Bob", "bob,", "@Bob", but not "Bobby"), or that answers a message an agent sent. Messages from other people are never triggers. Messages that an agent or the CLI sent are never triggers either.
+- **Handler**: the session that handles a chat. It is the session of the chat's route, else the session of the route for every chat (`*`), else the chat's own agent.
+- **Chat agent**: an agent that WhatsAgent runs for one chat that has no route. Its session is named `chat-<chat name>`, such as `chat-team`.
+- **Window**: a time span in which the handler of a chat in the window mode receives the chat's new messages and may read its recent messages.
+- **Prefix**: the text that WhatsAgent puts in front of every message an agent sends.
+
+## Agent name and prefix
+
+The owner names the agents once with `/name Bob`. The name is also the trigger word, and `/status` shows it on the `Agent name:` line.
+
+Agents write only their message. WhatsAgent puts the prefix in front of every message that a session sends, so no skill, prompt or system prompt has to tell an agent how to sign its messages. This applies to the MCP `send` tool, to a chat agent's answers, to the window messages, and to `whatsagent send --session <name>` for scripts. The owner's own sends, from the phone or from `whatsagent send` without `--session`, go out exactly as written.
+
+`/prefix <text>` sets the prefix as any text. WhatsAgent fills in `{name}` with the agent name and `{session}` with the sending session's name, turns `\n` into a line break, and passes WhatsApp formatting such as `*bold*` and `_italic_` through unchanged. It adds a space after the prefix unless the prefix ends in white space. `/prefix off` turns the prefix off, and `/prefix` alone shows the current prefix with an example. The default is `🤖 *{name}*:`, which shows the name in bold. A route can set its own prefix for one chat, which replaces the owner's prefix there. Text that already starts with the prefix is not prefixed a second time.
+
+## Modes
+
+`/mode <chat> <mode>` sets a chat's mode, and `/mode * <mode>` sets the mode of every chat that has no mode of its own. The default for every chat is `window`.
+
+| Mode | The handler receives | The handler may read |
+| --- | --- | --- |
+| `off` | nothing | nothing |
+| `keyword` | triggers | triggers and the agents' own messages |
+| `window` | every new message while a window is open | the messages from the window's start to its end, while it is open |
+| `all` | every new message | the whole chat |
+
+In the `keyword` mode, the handler sees only the owner's messages that name the agent or answer an agent message, and it can respond only to those. It cannot read any other message of the chat, not even an answer from another person to its own question. A conversation with other people needs the `window` or the `all` mode.
+
+The mode also decides whether the handler may write to the chat without asking the owner. In the `keyword` and `all` modes it may. In the `window` mode it may only while a window is open, and in the `off` mode it may not. Send rules (`/allow`, `/ask`, `/deny`) still override this default, as before. A send rule decides only whether a session may write to a chat. Reading a chat needs the handler role.
+
+## Window mode
+
+### Opening
+
+A trigger in a chat whose mode is `window` opens the chat's window, when none is open. The window starts at the lookback before the trigger and ends at the window length after it. The defaults are a lookback of 30 minutes and a length of 1 hour. While the window is open, the handler receives every new message of the chat and may browse everything from the window's start on with `read_chat` and `search`. The handler does not receive the lookback messages as pushes. They only become readable, so the agent can read them when it needs the context.
+
+When the window opens, WhatsAgent sends a start message to the chat, with the handler's prefix. By default it says how long the window lasts, how far back the agent can read, that naming the agent extends the window, and how to end it:
+
+> 🤖 **Bob**: Now monitoring this chat until 11:30. I can read the messages of the last 30 minutes and everything new. Mention Bob to extend it by 1 hour, or say "Bob stop watching" to end it.
+
+### Extending
+
+Each later trigger while the window is open moves the window's end to the window length after that trigger, and never earlier than the current end. The start stays where it was, so the agent keeps the same lookback. Extending sends no message, and the agent receives the trigger like any other message.
+
+### Ending
+
+A window ends in three ways:
+
+- A trigger that contains a stop phrase. The defaults are "stop watching", "stop monitoring" and "turn off", so "Bob stop watching", "Bob, stop monitoring" and "Bob turn off" all end the window.
+- `/window close <chat>` from the self-chat.
+- The window's end time. WhatsAgent checks every 10 seconds.
+
+When a window ends, WhatsAgent sends an end message to the chat, by default "I am done here. Mention Bob when you need me again." The agent then sleeps. It receives nothing more from the chat, it can no longer read the chat, and its sends to the chat ask the owner first. The next trigger opens a new window, with a new lookback from that trigger. Messages from an earlier window do not become readable again, but a chat agent keeps its harness session, so it remembers what it saw before.
+
+Switching a chat to another mode removes its open window without an end message, because the new mode replaces the window.
+
+### Settings
+
+`/window` shows the window settings and the open windows. The owner changes the defaults with these commands:
+
+| Command | Effect |
+| --- | --- |
+| `/window length <duration>` | How long a window lasts after each trigger. The default is 1 hour. |
+| `/window lookback <duration>` | How far back a new window starts. The default is 30 minutes; 5m, 10m, 1h or 1d also work. |
+| `/window stop <phrase>, <phrase>, ...` | The stop phrases. The defaults are "stop watching", "stop monitoring" and "turn off". |
+| `/window start <text>` | The start message. `{name}`, `{length}`, `{lookback}` and `{until}` are filled in. |
+| `/window end <text>` | The end message, with the same placeholders. |
+| `/window close <chat>` | Ends the chat's window now. |
+
+`default` in place of a value restores the default, as in `/window start default`. A chat can also have its own length and lookback, as in `/mode Team window 2h 1d`. Durations accept minutes, hours and days, such as `30m`, `1h`, `1h30m` and `1d`.
+
+## Handlers and chat agents
+
+A route links a chat to a session, as before. `/route <chat> <session> [<mode>]` sets the route and the chat's mode in one step, and the mode defaults to `all`, because routing a chat to a session usually means that session should get the chat. `/unroute <chat>` removes the route and the chat's own mode, so the chat's own agent handles it again in the mode of every chat. A session can ask for a route with the MCP `route_here` tool, which takes a `mode` too; the owner confirms in the self-chat.
+
+A chat without a route gets its own chat agent. WhatsAgent starts it when the chat's mode first shows the agent a message, for example when the owner opens a window. A chat agent runs on Claude Code with its own folder under the WhatsAgent data folder, keeps its harness session across restarts, and stops after 15 minutes without new messages and without an open window. The next message that its mode shows starts it again on the same session.
+
+Each chat gets a separate agent, so what one chat lets the agents see never reaches another chat. A chat agent has no shell or file tools, only web search, web fetch and the WhatsAgent MCP tools, and WhatsAgent is its only MCP server. Its WhatsAgent tools check in as its own session, so `read_chat`, `search`, `react` and `download_media` show it only what its chat's mode shows, and it cannot read the self-chat or any other chat. Its final answer in a turn goes to its chat with the prefix, and an answer of `NO_REPLY` sends nothing. When a turn fails, the owner hears about it in the self-chat, never in the chat.
+
+## Enforcement and limits
+
+The daemon enforces the modes for every session that is not the owner:
+
+- Delivery, reading, searching, reacting and media downloads all go through the same view of the chat, so a session never gets a message by one path that another path hides.
+- WhatsAgent handles a trigger before it stores the message. A session therefore never sees the message that closes a window, and it never misses the message that opens one.
+- A message reaches a window's handler only while the window is open and covers the message's time. A message that a session would get after the window ended stays hidden.
+- Windows are stored, so they survive a daemon restart. A window whose end passed while the daemon was down closes at the next check, with its end message.
+- A message that WhatsApp delivers twice runs its trigger once.
+
+These guarantees bind sessions through their WhatsAgent tools. The owner, the `whatsagent` CLI and home keep the owner's rights and read every chat. Home is the owner's assistant in the self-chat, so it can answer questions such as "what did Sam say today?". A routed session that can run shell commands as the owner's user can still reach every chat through the CLI or the database. The modes are a hard limit only for chat agents and for sessions without shell access.
+
+## Risks
+
+The agent name is the trigger word, and a common name such as Bob is also the name of real people. When the owner writes "Hey Bob!" to a friend called Bob, that opens a window in the chat with the friend, and the start message goes out there. A chat where that can happen should get `/mode <chat> off`. An owner who prefers to opt chats in one by one can set `/mode * off` and then `/mode <chat> window` for each chat where the agent may help.
+
+## Migration
+
+Routes used to have an "addressed" flag. The schema migration turns each route with the flag into a chat in the `keyword` mode, and every other route into a chat in the `all` mode. Send rules now call their outcome a permission (allow, ask or deny), so "mode" means only the chat mode. The fixed word "claude" no longer calls the agents; the agent name does, and only when the owner writes it.

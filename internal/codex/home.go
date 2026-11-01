@@ -13,7 +13,7 @@ import (
 // attaching a TUI with `codex resume --remote unix://`.
 type Home struct {
 	adapter  *Adapter
-	host     core.HomeHost
+	host     core.AgentHost
 	threadID string
 	format   func([]model.Event) string
 
@@ -22,7 +22,7 @@ type Home struct {
 }
 
 // NewHome continues home's stored thread, or starts a new one in dir with instructions.
-func (a *Adapter) NewHome(ctx context.Context, host core.HomeHost, dir, instructions string,
+func (a *Adapter) NewHome(ctx context.Context, host core.AgentHost, dir, instructions string,
 	format func([]model.Event) string) (*Home, error) {
 	h := &Home{adapter: a, host: host, format: format}
 	var started struct {

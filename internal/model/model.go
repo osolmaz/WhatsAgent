@@ -102,58 +102,57 @@ func (c Chat) Label() string {
 	return c.JID
 }
 
-// Route links one chat to one session name.
+// Route links one chat to the session that handles it. A chat without a route is handled by
+// the route for "*", or else by the chat's own agent, which WhatsAgent runs.
 type Route struct {
 	Chat    string `json:"chat"`
 	Session string `json:"session"`
-	// Prefix is added to every message that a session sends on this route.
+	// Prefix replaces the owner's agent prefix for the session's messages in this chat.
 	Prefix string `json:"prefix,omitempty"`
-	// Addressed limits pushes to messages that name the agent or answer an agent message.
-	Addressed bool `json:"addressed,omitempty"`
 }
 
-// Mode is the outcome of a send rule.
-type Mode string
+// Permission is the outcome of a send rule.
+type Permission string
 
 const (
 	// Allow sends at once.
-	Allow Mode = "allow"
+	Allow Permission = "allow"
 	// Ask sends after the owner answers yes in the self-chat.
-	Ask Mode = "ask"
+	Ask Permission = "ask"
 	// Deny refuses the send.
-	Deny Mode = "deny"
+	Deny Permission = "deny"
 )
 
-// ParseMode returns the Mode named s.
-func ParseMode(s string) (Mode, error) {
-	switch m := Mode(s); m {
+// ParsePermission returns the Permission named s.
+func ParsePermission(s string) (Permission, error) {
+	switch p := Permission(s); p {
 	case Allow, Ask, Deny:
-		return m, nil
+		return p, nil
 	}
-	return "", fmt.Errorf("unknown send rule mode %q: use allow, ask or deny", s)
+	return "", fmt.Errorf("unknown send rule %q: use allow, ask or deny", s)
 }
 
 // Rule is one send rule. Session and Chat can be "*".
 type Rule struct {
-	Session string `json:"session"`
-	Chat    string `json:"chat"`
-	Mode    Mode   `json:"mode"`
+	Session    string     `json:"session"`
+	Chat       string     `json:"chat"`
+	Permission Permission `json:"permission"`
 }
 
-// Decide returns the mode for a send from session to chat. The most specific rule wins: session
-// and chat, session and "*", "*" and chat, then "*" and "*". Without a rule, a session may send
-// to its routed chats and to the self-chat, and every other send asks the owner.
-func Decide(rules []Rule, session, chat string, routedOrSelf bool) Mode {
-	best, bestRank := Mode(""), 0
+// Decide returns the permission for a send from session to chat. The most specific rule wins:
+// session and chat, session and "*", "*" and chat, then "*" and "*". Without a rule, a send that
+// the session's chat mode allows goes out, and every other send asks the owner.
+func Decide(rules []Rule, session, chat string, allowed bool) Permission {
+	best, bestRank := Permission(""), 0
 	for _, r := range rules {
 		if rank := r.rank(session, chat); rank > bestRank {
-			best, bestRank = r.Mode, rank
+			best, bestRank = r.Permission, rank
 		}
 	}
 	if best != "" {
 		return best
 	}
-	if routedOrSelf {
+	if allowed {
 		return Allow
 	}
 	return Ask

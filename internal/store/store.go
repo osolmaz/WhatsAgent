@@ -21,7 +21,10 @@ import (
 //go:embed schema.sql
 var schemaV1 string
 
-var migrations = []string{schemaV1}
+//go:embed schema_v2.sql
+var schemaV2 string
+
+var migrations = []string{schemaV1, schemaV2}
 
 // Store is the WhatsAgent database.
 type Store struct {
@@ -230,6 +233,18 @@ func (s *Store) Messages(ctx context.Context, chat string, limit int) ([]model.M
 	return collect(rows, err, scanMessageRow)
 }
 
+// MessagesBetween returns the latest limit messages of chat sent from start to end, oldest
+// first. limit 0 returns all of them.
+func (s *Store) MessagesBetween(ctx context.Context, chat string, start, end time.Time, limit int) ([]model.Message, error) {
+	if limit <= 0 {
+		limit = -1
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT * FROM (SELECT `+messageColumns+`
+		FROM messages m WHERE m.chat = ? AND m.time BETWEEN ? AND ? ORDER BY m.time DESC, m.id DESC LIMIT ?)
+		ORDER BY time, id`, chat, millis(start), millis(end), limit)
+	return collect(rows, err, scanMessageRow)
+}
+
 // Search returns up to limit messages whose text contains query, newest first, in chat or in
 // every chat when chat is "".
 func (s *Store) Search(ctx context.Context, query, chat string, limit int) ([]model.Message, error) {
@@ -341,20 +356,18 @@ func (s *Store) Chat(ctx context.Context, jid string) (model.Chat, error) {
 
 // Routes returns every route.
 func (s *Store) Routes(ctx context.Context) ([]model.Route, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT chat, session, prefix, addressed FROM routes ORDER BY session, chat")
+	rows, err := s.db.QueryContext(ctx, "SELECT chat, session, prefix FROM routes ORDER BY session, chat")
 	return collect(rows, err, func(rows *sql.Rows) (model.Route, error) {
 		var r model.Route
-		return r, rows.Scan(&r.Chat, &r.Session, &r.Prefix, &r.Addressed)
+		return r, rows.Scan(&r.Chat, &r.Session, &r.Prefix)
 	})
 }
 
 // SetRoute creates or replaces the route of r.Chat.
 func (s *Store) SetRoute(ctx context.Context, r model.Route) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO routes (chat, session, prefix, addressed)
-		VALUES (?, ?, ?, ?) ON CONFLICT (chat) DO UPDATE SET session = excluded.session,
-		prefix = excluded.prefix, addressed = excluded.addressed`,
-		r.Chat, r.Session, r.Prefix, r.Addressed)
+	_, err := s.db.ExecContext(ctx, `INSERT INTO routes (chat, session, prefix) VALUES (?, ?, ?)
+		ON CONFLICT (chat) DO UPDATE SET session = excluded.session, prefix = excluded.prefix`,
+		r.Chat, r.Session, r.Prefix)
 	return err
 }
 
@@ -381,6 +394,8 @@ func (s *Store) RenameSession(ctx context.Context, old, name string) error {
 	defer tx.Rollback() //nolint:errcheck // a no-op after Commit
 	for _, query := range []string{
 		"UPDATE routes SET session = ? WHERE session = ?",
+		"UPDATE windows SET session = ? WHERE session = ?",
+		"UPDATE OR REPLACE chat_agents SET session = ? WHERE session = ?",
 		"UPDATE OR REPLACE send_rules SET session = ? WHERE session = ?",
 		"UPDATE OR REPLACE sessions SET name = ? WHERE name = ?",
 	} {
@@ -393,20 +408,21 @@ func (s *Store) RenameSession(ctx context.Context, old, name string) error {
 
 // Rules returns every send rule.
 func (s *Store) Rules(ctx context.Context) ([]model.Rule, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT session, chat, mode FROM send_rules ORDER BY session, chat")
+	rows, err := s.db.QueryContext(ctx, "SELECT session, chat, permission FROM send_rules ORDER BY session, chat")
 	return collect(rows, err, func(rows *sql.Rows) (model.Rule, error) {
 		var r model.Rule
-		var mode string
-		err := rows.Scan(&r.Session, &r.Chat, &mode)
-		r.Mode = model.Mode(mode)
+		var permission string
+		err := rows.Scan(&r.Session, &r.Chat, &permission)
+		r.Permission = model.Permission(permission)
 		return r, err
 	})
 }
 
 // SetRule creates or replaces a send rule.
 func (s *Store) SetRule(ctx context.Context, r model.Rule) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO send_rules (session, chat, mode) VALUES (?, ?, ?)
-		ON CONFLICT (session, chat) DO UPDATE SET mode = excluded.mode`, r.Session, r.Chat, string(r.Mode))
+	_, err := s.db.ExecContext(ctx, `INSERT INTO send_rules (session, chat, permission) VALUES (?, ?, ?)
+		ON CONFLICT (session, chat) DO UPDATE SET permission = excluded.permission`,
+		r.Session, r.Chat, string(r.Permission))
 	return err
 }
 
@@ -465,12 +481,7 @@ func (s *Store) IsSent(ctx context.Context, id string) (bool, error) {
 
 // Setting returns a stored setting, or "" when it is not set.
 func (s *Store) Setting(ctx context.Context, key string) (string, error) {
-	var value string
-	err := s.db.QueryRowContext(ctx, "SELECT value FROM settings WHERE key = ?", key).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return value, err
+	return s.lookup(ctx, "SELECT value FROM settings WHERE key = ?", key)
 }
 
 // SetSetting stores a setting.
