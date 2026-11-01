@@ -80,6 +80,23 @@ func TestAgentNameAndPrefix(t *testing.T) {
 	h.expectText("plain")
 }
 
+func TestBrowserSetting(t *testing.T) {
+	h := newHarness(t)
+	for _, step := range []struct{ line, want string }{
+		{"/browser", "it opens one"},
+		{"/browser off", "does not open"},
+		{"/browser", "does not open"},
+		{"/browser on", "it opens one"},
+	} {
+		if reply, err := h.core.Run(h.ctx, Owner, step.line); err != nil || !strings.Contains(reply, step.want) {
+			t.Errorf("%s = %q, %v", step.line, reply, err)
+		}
+	}
+	if _, err := h.core.Run(h.ctx, Owner, "/browser maybe"); err == nil {
+		t.Error("/browser maybe gave no error")
+	}
+}
+
 func TestAutoApproval(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx

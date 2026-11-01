@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/osolmaz/WhatsAgent/internal/api"
+	"github.com/osolmaz/WhatsAgent/internal/browser"
 	"github.com/osolmaz/WhatsAgent/internal/codex"
 	"github.com/osolmaz/WhatsAgent/internal/core"
 	"github.com/osolmaz/WhatsAgent/internal/home"
@@ -78,7 +79,9 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	terminals.Changed = page.Notify
-	c, adapter := build(opts, st, client, terminals)
+	opener := &pageOpener{url: pageURL, viewers: page.Viewers, open: browser.Open, every: time.Minute,
+		enabled: func() bool { v, _ := st.Setting(ctx, core.SettingBrowser); return v != "off" }}
+	c, adapter := build(opts, st, client, terminals, opener)
 	defer adapter.Close()
 	server := &http.Server{Handler: api.NewServer(c, pageURL), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
@@ -90,7 +93,8 @@ func Run(ctx context.Context, opts Options) error {
 
 // build creates the core with both home adapters and the Codex adapter. Agents on Claude Code
 // run in terminals on terminals, where the browser page shows them.
-func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Host) (*core.Core, *codex.Adapter) {
+func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Host,
+	opener *pageOpener) (*core.Core, *codex.Adapter) {
 	var c *core.Core
 	adapter := codex.New(codex.Options{Socket: opts.CodexSocket, Version: opts.Version, Log: opts.Log,
 		Approve: func(ctx context.Context, title, detail string) bool {
@@ -110,7 +114,7 @@ func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Hos
 				return adapter.NewHome(ctx, host, homeDir, home.CodexInstructions, format)
 			},
 		},
-		ChatAgent: chatAgents(opts, terminals),
+		ChatAgent: chatAgents(opts, terminals, opener),
 	})
 	return c, adapter
 }
@@ -118,13 +122,17 @@ func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Hos
 // chatAgents starts each chat's own agent on Claude Code, with no built-in tools other than web
 // search and fetch, and with WhatsAgent as its only MCP server. The agent can then read only
 // what its chat's mode shows it.
-func chatAgents(opts Options, terminals *term.Host) core.AgentFactory {
+func chatAgents(opts Options, terminals *term.Host, opener *pageOpener) core.AgentFactory {
 	return func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
 		dir := filepath.Join(opts.Dirs.Data, "agents", host.Session)
 		instructions := home.ChatInstructions(host.Name, host.ChatName, host.Chat)
 		o := claudeOptions(opts, terminals, host.Session, dir, host.ChatName+" ("+host.Session+")", instructions,
 			[]string{"WebSearch", "WebFetch"})
-		return home.StartClaude(ctx, o, host)
+		pusher, err := home.StartClaude(ctx, o, host)
+		if err == nil {
+			opener.agentStarted()
+		}
+		return pusher, err
 	}
 }
 

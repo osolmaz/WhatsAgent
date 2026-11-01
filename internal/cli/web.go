@@ -5,29 +5,13 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/osolmaz/WhatsAgent/internal/browser"
 	"github.com/osolmaz/WhatsAgent/internal/paths"
 )
 
-// browserCommand returns the command that opens url in the default browser, or nil when this
-// machine has no desktop to show it, for example over SSH.
-func browserCommand(goos string, getenv func(string) string, url string) []string {
-	switch goos {
-	case "darwin":
-		return []string{"open", url}
-	case "windows":
-		return []string{"rundll32", "url.dll,FileProtocolHandler", url}
-	case "linux":
-		if getenv("DISPLAY") == "" && getenv("WAYLAND_DISPLAY") == "" {
-			return nil
-		}
-		return []string{"xdg-open", url}
-	}
-	return nil
-}
-
 // openBrowser opens url in the default browser and reports whether it could.
 func openBrowser(env paths.Env, url string) bool {
-	args := browserCommand(env.GOOS, func(k string) string { return getenv(env, k) }, url)
+	args := browser.Command(env.GOOS, func(k string) string { return getenv(env, k) }, url)
 	if args == nil {
 		return false
 	}

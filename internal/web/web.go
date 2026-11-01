@@ -174,6 +174,13 @@ func (s *Server) Notify() {
 	}
 }
 
+// Viewers returns how many pages are open.
+func (s *Server) Viewers() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pages)
+}
+
 // openPages returns the open pages. The caller holds s.mu.
 func (s *Server) openPages() []*page {
 	pages := make([]*page, 0, len(s.pages))

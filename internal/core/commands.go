@@ -42,6 +42,8 @@ func init() {
 		{"deny", "/deny <session> <chat>", "Stop a session from sending to a chat.", true, ruleCommand(model.Deny)},
 		{"rules", "/rules", "List the send rules.", false, cmdRules},
 		{"name", "/name [<name>]", "Show or set the agents' name, which is also their trigger word.", true, cmdName},
+		{"browser", "/browser [on|off]", "Show or set whether WhatsAgent opens the browser page by itself when it " +
+			"starts a chat's agent and no page is open.", true, cmdBrowser},
 		{"approvals", "/approvals [here|self]", "Show or set where WhatsAgent asks you about an agent's messages to " +
 			"other chats: in the chat where you last wrote to that agent, or always here.", true, cmdApprovals},
 		{"auto", "/auto [on|off]", "Show or set whether home and the chat agents approve their own tool calls, " +

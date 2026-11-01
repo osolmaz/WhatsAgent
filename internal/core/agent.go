@@ -17,8 +17,10 @@ const (
 	settingName   = "agent.name"
 	settingPrefix = "agent.prefix"
 	settingAuto   = "agent.auto"
-	defaultName   = "Agent"
-	defaultPrefix = "🤖 *{name}*:"
+	// SettingBrowser is "off" when the daemon may not open the browser page by itself.
+	SettingBrowser = "web.open"
+	defaultName    = "Agent"
+	defaultPrefix  = "🤖 *{name}*:"
 	// prefixOff is the /prefix value that turns the prefix off.
 	prefixOff = "off"
 )
@@ -119,6 +121,22 @@ func cmdAuto(ctx context.Context, c *Core, args string) (string, error) {
 			"auto mode or Codex's auto review, and ask you only when the harness will not decide.", nil
 	}
 	return "Auto approval is off: home and the chat agents ask you before each tool call that needs approval.", nil
+}
+
+func cmdBrowser(ctx context.Context, c *Core, args string) (string, error) {
+	arg := strings.ToLower(args)
+	if arg != "" && arg != "on" && arg != "off" {
+		return "", errors.New("use /browser on or /browser off")
+	}
+	if arg != "" {
+		if err := c.st.SetSetting(ctx, SettingBrowser, arg); err != nil {
+			return "", err
+		}
+	}
+	if c.setting(ctx, SettingBrowser, "on") == "off" {
+		return "WhatsAgent does not open the browser page by itself; `whatsagent web` opens it.", nil
+	}
+	return "When WhatsAgent starts a chat's agent and no browser page is open, it opens one on this computer.", nil
 }
 
 // restartAgents starts home again and stops the running chat agents, so they pick up a changed

@@ -34,9 +34,12 @@ go:
     - from: cmd/whatsagent
       allow:
         - internal/cli
+    - from: internal/browser
+      allow: []
     - from: internal/cli
       allow:
         - internal/api
+        - internal/browser
         - internal/core
         - internal/daemon
         - internal/mcp
@@ -62,6 +65,7 @@ go:
     - from: internal/daemon
       allow:
         - internal/api
+        - internal/browser
         - internal/codex
         - internal/core
         - internal/home

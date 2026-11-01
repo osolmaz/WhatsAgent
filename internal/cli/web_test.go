@@ -34,26 +34,3 @@ func TestWebCommand(t *testing.T) {
 		t.Error("web without a daemon gave no error")
 	}
 }
-
-func TestBrowserCommand(t *testing.T) {
-	none := func(string) string { return "" }
-	for goos, want := range map[string]string{
-		"darwin":  "open u",
-		"windows": "rundll32 url.dll,FileProtocolHandler u",
-		"linux":   "",
-		"plan9":   "",
-	} {
-		if got := strings.Join(browserCommand(goos, none, "u"), " "); got != want {
-			t.Errorf("browserCommand(%s) = %q, want %q", goos, got, want)
-		}
-	}
-	wayland := func(k string) string {
-		if k == "WAYLAND_DISPLAY" {
-			return "wayland-0"
-		}
-		return ""
-	}
-	if got := strings.Join(browserCommand("linux", wayland, "u"), " "); got != "xdg-open u" {
-		t.Errorf("browserCommand on Wayland = %q", got)
-	}
-}

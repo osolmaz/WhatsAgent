@@ -121,7 +121,7 @@ func TestHelpers(t *testing.T) {
 		t.Errorf("mcpConfig = %s", got)
 	}
 	dir := t.TempDir()
-	start := chatAgents(Options{Dirs: paths.Dirs{Data: dir}, ClaudeBin: "/no/such/claude", Bin: "/bin/whatsagent"}, term.NewHost())
+	start := chatAgents(Options{Dirs: paths.Dirs{Data: dir}, ClaudeBin: "/no/such/claude", Bin: "/bin/whatsagent"}, term.NewHost(), nil)
 	if _, err := start(context.Background(), core.AgentHost{Session: "chat-team", SaveSessionID: func(string) error { return nil }}); err == nil {
 		t.Error("a chat agent started without claude")
 	}
@@ -168,7 +168,7 @@ func TestBuildAndDiscover(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	c, adapter := build(Options{Dirs: d, CodexSocket: filepath.Join(d.Data, "none.sock")}, st, client, term.NewHost())
+	c, adapter := build(Options{Dirs: d, CodexSocket: filepath.Join(d.Data, "none.sock")}, st, client, term.NewHost(), nil)
 	if c == nil || adapter == nil {
 		t.Fatal("build returned nil")
 	}
