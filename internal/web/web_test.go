@@ -167,7 +167,8 @@ func TestTerminal(t *testing.T) {
 	read := func(want string) {
 		t.Helper()
 		var all strings.Builder
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		// Generous, because the coverage run starts every package's terminals at once.
+		for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 			_ = conn.SetReadDeadline(deadline)
 			_, data, err := conn.ReadMessage()
 			if err != nil {
