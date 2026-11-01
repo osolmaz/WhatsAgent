@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,10 +19,26 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/term"
 )
 
-type memory struct{ saved string }
+type memory struct {
+	mu     sync.Mutex
+	values map[string]string
+}
 
-func (m *memory) Load() string            { return m.saved }
-func (m *memory) Save(value string) error { m.saved = value; return nil }
+func (m *memory) Load(key string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.values[key]
+}
+
+func (m *memory) Save(key, value string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.values == nil {
+		m.values = map[string]string{}
+	}
+	m.values[key] = value
+	return nil
+}
 
 func start(t *testing.T) (*Server, *httptest.Server, *term.Host, *memory) {
 	t.Helper()
@@ -114,8 +132,8 @@ func TestPageAndAPI(t *testing.T) {
 	if err := page.ReadJSON(&changed); err != nil || changed.Settings.Theme != "catppuccin-mocha" || changed.Settings.FontSize != 16 {
 		t.Errorf("settings event = %+v, %v", changed, err)
 	}
-	if !strings.Contains(store.saved, "catppuccin-mocha") {
-		t.Errorf("saved settings = %q", store.saved)
+	if !strings.Contains(store.Load(keySettings), "catppuccin-mocha") {
+		t.Errorf("saved settings = %q", store.Load(keySettings))
 	}
 	again, err := New(term.NewHost(), store)
 	if err != nil || again.settings.Theme != "catppuccin-mocha" {
@@ -216,7 +234,7 @@ func TestTerminal(t *testing.T) {
 }
 
 func TestListenAndHelpers(t *testing.T) {
-	s, err := New(term.NewHost(), &memory{saved: "not json"})
+	s, err := New(term.NewHost(), &memory{values: map[string]string{keySettings: "not json"}})
 	if err != nil || s.settings.Theme != "catppuccin-latte" || s.settings.FontSize != 14 {
 		t.Fatalf("New with bad saved settings = %+v, %v", s.settings, err)
 	}
@@ -243,6 +261,29 @@ func TestListenAndHelpers(t *testing.T) {
 	}
 	if _, err := named.Listen(ctx, "203.0.113.1"); err == nil {
 		t.Error("Listen on an address of another machine gave no error")
+	}
+
+	// After a restart with the same store, the token and the port stay, so an open page
+	// reconnects.
+	store := &memory{}
+	first, _ := New(term.NewHost(), store)
+	firstCtx, stop := context.WithCancel(ctx)
+	before, err := first.Listen(firstCtx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop()
+	// Like a service restart: the old server lets go of its port before the new one starts.
+	port := store.Load(keyPort)
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if l, err := net.Listen("tcp", "127.0.0.1:"+port); err == nil {
+			l.Close()
+			break
+		}
+	}
+	again, _ := New(term.NewHost(), store)
+	if after, err := again.Listen(ctx, ""); err != nil || after != before {
+		t.Errorf("address after a restart = %q, %v; before %q", after, err, before)
 	}
 	resp, err := http.Get(address)
 	if err != nil || resp.StatusCode != http.StatusOK {

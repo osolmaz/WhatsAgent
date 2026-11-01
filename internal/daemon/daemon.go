@@ -158,13 +158,13 @@ func mcpConfig(bin, session string) string {
 // settingStore keeps the browser page's settings in the WhatsAgent database.
 type settingStore struct{ st *store.Store }
 
-func (s settingStore) Load() string {
-	v, _ := s.st.Setting(context.Background(), "web.settings")
+func (s settingStore) Load(key string) string {
+	v, _ := s.st.Setting(context.Background(), "web."+key)
 	return v
 }
 
-func (s settingStore) Save(settings string) error {
-	return s.st.SetSetting(context.Background(), "web.settings", settings)
+func (s settingStore) Save(key, value string) error {
+	return s.st.SetSetting(context.Background(), "web."+key, value)
 }
 
 // turnText formats routed events as one turn for a session that the adapter pushes into.

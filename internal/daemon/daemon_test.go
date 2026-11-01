@@ -129,8 +129,8 @@ func TestHelpers(t *testing.T) {
 		t.Errorf("the chat agent got no folder: %v", err)
 	}
 	s := settingStore{openStore(t)}
-	if err := s.Save(`{"theme":"x"}`); err != nil || s.Load() != `{"theme":"x"}` {
-		t.Errorf("settingStore = %q, %v", s.Load(), err)
+	if err := s.Save("settings", `{"theme":"x"}`); err != nil || s.Load("settings") != `{"theme":"x"}` {
+		t.Errorf("settingStore = %q, %v", s.Load("settings"), err)
 	}
 }
 

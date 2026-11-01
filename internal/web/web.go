@@ -51,9 +51,18 @@ type Sessions interface {
 
 // Store keeps the page's settings across restarts.
 type Store interface {
-	Load() string
-	Save(settings string) error
+	// Load returns the value of key, or "".
+	Load(key string) string
+	Save(key, value string) error
 }
+
+// The keys that the page keeps in its Store. The token and the port stay the same across
+// restarts, so an open page reconnects after the daemon restarts.
+const (
+	keySettings = "settings"
+	keyToken    = "token"
+	keyPort     = "port"
+)
 
 // Settings are the page's look, shared by every viewer.
 type Settings struct {
@@ -99,19 +108,26 @@ func (p *page) send(v any) {
 	_ = p.conn.WriteJSON(v)
 }
 
-// New returns a server for sessions, with settings kept in store. names are host names besides
-// the loopback names that the page may be opened under.
+// New returns a server for sessions, with its settings, token and port kept in store. names are
+// host names besides the loopback names that the page may be opened under.
 func New(sessions Sessions, store Store, names ...string) (*Server, error) {
 	themes, err := ui.ReadFile("ui/themes.json")
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{sessions: sessions, store: store, names: names, token: rand.Text(), themes: themes, pages: map[*page]bool{}}
+	s := &Server{sessions: sessions, store: store, names: names, token: store.Load(keyToken), themes: themes,
+		pages: map[*page]bool{}}
+	if s.token == "" {
+		s.token = rand.Text()
+		if err := store.Save(keyToken, s.token); err != nil {
+			return nil, err
+		}
+	}
 	if err := json.Unmarshal(themes, &s.choices); err != nil || len(s.choices) == 0 {
 		return nil, fmt.Errorf("read the page themes: %w", err)
 	}
 	s.settings = Settings{Theme: s.choices[0].ID, FontSize: 14}
-	if saved, err := s.parseSettings([]byte(store.Load())); err == nil {
+	if saved, err := s.parseSettings([]byte(store.Load(keySettings))); err == nil {
 		s.settings = saved
 	}
 	return s, nil
@@ -123,14 +139,18 @@ func (s *Server) Listen(ctx context.Context, host string) (string, error) {
 	if host == "" {
 		host = "127.0.0.1"
 	}
-	listener, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+	listener, err := s.listen(host)
 	if err != nil {
 		return "", err
 	}
 	s.names = append(s.names, host)
 	address := listener.Addr().String()
+	_, port, _ := net.SplitHostPort(address)
+	if err := s.store.Save(keyPort, port); err != nil {
+		_ = listener.Close()
+		return "", err
+	}
 	if len(s.names) > 1 {
-		_, port, _ := net.SplitHostPort(address)
 		address = net.JoinHostPort(s.names[0], port)
 	}
 	server := &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second}
@@ -141,6 +161,17 @@ func (s *Server) Listen(ctx context.Context, host string) (string, error) {
 		_ = server.Close()
 	}()
 	return fmt.Sprintf("http://%s/?token=%s", address, s.token), nil
+}
+
+// listen listens on host at the port of the last run, so an open page reconnects, or at a free
+// port when that port is taken.
+func (s *Server) listen(host string) (net.Listener, error) {
+	if port := s.store.Load(keyPort); port != "" {
+		if listener, err := net.Listen("tcp", net.JoinHostPort(host, port)); err == nil {
+			return listener, nil
+		}
+	}
+	return net.Listen("tcp", net.JoinHostPort(host, "0"))
 }
 
 // watch sends the session list to the open pages whenever it changes.
@@ -286,7 +317,7 @@ func (s *Server) changeSettings(w http.ResponseWriter, r *http.Request) error {
 		return httpError{http.StatusBadRequest, err.Error()}
 	}
 	saved, _ := json.Marshal(settings)
-	if err := s.store.Save(string(saved)); err != nil {
+	if err := s.store.Save(keySettings, string(saved)); err != nil {
 		return err
 	}
 	s.mu.Lock()
