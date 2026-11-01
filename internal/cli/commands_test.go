@@ -167,7 +167,7 @@ func TestDaemonCommandWithoutAccount(t *testing.T) {
 func seams(t *testing.T) *[]string {
 	t.Helper()
 	var ran []string
-	oldExec, oldRun, oldExe := execProcess, runCommand, executable
+	oldExec, oldRun, oldStart, oldExe := execProcess, runCommand, startCommand, executable
 	execProcess = func(path string, argv, _ []string) error {
 		ran = append(ran, "exec "+strings.Join(argv, " "))
 		return nil
@@ -179,8 +179,9 @@ func seams(t *testing.T) *[]string {
 		}
 		return nil
 	}
+	startCommand = runCommand
 	executable = func() (string, error) { return "/opt/whatsagent", nil }
-	t.Cleanup(func() { execProcess, runCommand, executable = oldExec, oldRun, oldExe })
+	t.Cleanup(func() { execProcess, runCommand, startCommand, executable = oldExec, oldRun, oldStart, oldExe })
 	return &ran
 }
 

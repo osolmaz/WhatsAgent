@@ -31,7 +31,7 @@ func openBrowser(env paths.Env, url string) bool {
 	if args == nil {
 		return false
 	}
-	return runCommand(args[0], args[1:]...) == nil
+	return startCommand(args[0], args[1:]...) == nil
 }
 
 func newWeb(env paths.Env) *cobra.Command {
