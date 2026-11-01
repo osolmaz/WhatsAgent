@@ -21,7 +21,9 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/paths"
 	"github.com/osolmaz/WhatsAgent/internal/store"
+	"github.com/osolmaz/WhatsAgent/internal/term"
 	"github.com/osolmaz/WhatsAgent/internal/wa"
+	"github.com/osolmaz/WhatsAgent/internal/web"
 )
 
 // Options configure the daemon.
@@ -62,9 +64,19 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
-	c, adapter := build(opts, st, client)
+	terminals := term.NewHost()
+	page, err := web.New(terminals, settingStore{st})
+	if err != nil {
+		return err
+	}
+	pageURL, err := page.Listen(ctx)
+	if err != nil {
+		return err
+	}
+	terminals.Changed = page.Notify
+	c, adapter := build(opts, st, client, terminals)
 	defer adapter.Close()
-	server := &http.Server{Handler: api.NewServer(c), ReadHeaderTimeout: 10 * time.Second}
+	server := &http.Server{Handler: api.NewServer(c, pageURL), ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
 	defer server.Close()
 	c.Start(ctx)
@@ -72,8 +84,9 @@ func Run(ctx context.Context, opts Options) error {
 	return client.Run(ctx, c)
 }
 
-// build creates the core with both home adapters and the Codex adapter.
-func build(opts Options, st *store.Store, client *wa.Client) (*core.Core, *codex.Adapter) {
+// build creates the core with both home adapters and the Codex adapter. Agents on Claude Code
+// run in terminals on terminals, where the browser page shows them.
+func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Host) (*core.Core, *codex.Adapter) {
 	var c *core.Core
 	adapter := codex.New(codex.Options{Socket: opts.CodexSocket, Version: opts.Version, Log: opts.Log,
 		Approve: func(ctx context.Context, title, detail string) bool {
@@ -86,14 +99,14 @@ func build(opts Options, st *store.Store, client *wa.Client) (*core.Core, *codex
 		SendGap: 2 * time.Second, StatusDelay: 3 * time.Second, Heartbeat: 30 * time.Second,
 		Homes: map[string]core.AgentFactory{
 			"claude": func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
-				return home.NewClaude(ctx, home.ClaudeOptions{Bin: opts.ClaudeBin, Dir: homeDir, SelfChat: selfChat, Log: opts.Log}, host)
+				return home.StartClaude(ctx, claudeOptions(opts, terminals, host.Session, homeDir, "home", home.Instructions, nil), host)
 			},
 			"codex": func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
 				format := func(events []model.Event) string { return home.Prompt(events, selfChat, time.Local) }
-				return adapter.NewHome(ctx, host, homeDir, home.Instructions, format)
+				return adapter.NewHome(ctx, host, homeDir, home.CodexInstructions, format)
 			},
 		},
-		ChatAgent: chatAgents(opts, selfChat),
+		ChatAgent: chatAgents(opts, terminals),
 	})
 	return c, adapter
 }
@@ -101,24 +114,45 @@ func build(opts Options, st *store.Store, client *wa.Client) (*core.Core, *codex
 // chatAgents starts each chat's own agent on Claude Code, with no built-in tools other than web
 // search and fetch, and with WhatsAgent as its only MCP server. The agent can then read only
 // what its chat's mode shows it.
-func chatAgents(opts Options, selfChat string) core.AgentFactory {
+func chatAgents(opts Options, terminals *term.Host) core.AgentFactory {
 	return func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
-		return home.NewClaude(ctx, home.ClaudeOptions{
-			Bin: opts.ClaudeBin, Dir: filepath.Join(opts.Dirs.Data, "agents", host.Session), SelfChat: selfChat,
-			Log: opts.Log, Instructions: home.ChatInstructions(host.Name, host.ChatName, host.Chat),
-			Tools: []string{"WebSearch", "WebFetch"}, MCPConfig: mcpConfig(opts.Bin, host.Session),
-		}, host)
+		dir := filepath.Join(opts.Dirs.Data, "agents", host.Session)
+		instructions := home.ChatInstructions(host.Name, host.ChatName, host.Chat)
+		o := claudeOptions(opts, terminals, host.Session, dir, host.ChatName+" ("+host.Session+")", instructions,
+			[]string{"WebSearch", "WebFetch"})
+		return home.StartClaude(ctx, o, host)
 	}
 }
 
+// claudeOptions configures the agent of session on Claude Code, in a terminal.
+func claudeOptions(opts Options, terminals *term.Host, session, dir, title, instructions string,
+	tools []string) home.ClaudeOptions {
+	userHome, _ := os.UserHomeDir()
+	return home.ClaudeOptions{Terminals: terminals, Bin: opts.ClaudeBin, Dir: dir, Title: title,
+		Instructions: instructions, Tools: tools, MCPConfig: mcpConfig(opts.Bin, session),
+		ConfigDir: home.ConfigDir(os.Getenv, userHome), Log: opts.Log}
+}
+
 // mcpConfig is a Claude Code MCP configuration with only the WhatsAgent server, checked in as
-// session.
+// session with channel pushes.
 func mcpConfig(bin, session string) string {
 	data, _ := json.Marshal(map[string]any{"mcpServers": map[string]any{"whatsagent": map[string]any{
 		"type": "stdio", "command": bin, "args": []string{"channel"},
-		"env": map[string]string{"WHATSAGENT_SESSION": session, "WHATSAGENT_HARNESS": "claude"},
+		"env": map[string]string{"WHATSAGENT_SESSION": session, "WHATSAGENT_HARNESS": "claude", "WHATSAGENT_PUSH": "channel"},
 	}}})
 	return string(data)
+}
+
+// settingStore keeps the browser page's settings in the WhatsAgent database.
+type settingStore struct{ st *store.Store }
+
+func (s settingStore) Load() string {
+	v, _ := s.st.Setting(context.Background(), "web.settings")
+	return v
+}
+
+func (s settingStore) Save(settings string) error {
+	return s.st.SetSetting(context.Background(), "web.settings", settings)
 }
 
 // turnText formats routed events as one turn for a session that the adapter pushes into.

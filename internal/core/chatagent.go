@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 	"unicode"
 
@@ -16,36 +15,9 @@ import (
 
 // chatAgent is a running chat agent.
 type chatAgent struct {
-	chat   string
-	cancel context.CancelFunc
-
-	mu   sync.Mutex
-	last time.Time
-}
-
-func (a *chatAgent) touch() {
-	a.mu.Lock()
-	a.last = time.Now()
-	a.mu.Unlock()
-}
-
-func (a *chatAgent) idleSince() time.Time {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	return a.last
-}
-
-// trackedPusher records when a chat agent last got messages, so idle agents can stop.
-type trackedPusher struct {
-	Pusher
-	agent *chatAgent
-}
-
-func (p trackedPusher) Push(ctx context.Context, events []model.Event) error {
-	if events != nil {
-		p.agent.touch()
-	}
-	return p.Pusher.Push(ctx, events)
+	chat    string
+	cancel  context.CancelFunc
+	started time.Time
 }
 
 // handler returns the session that handles chat: its route's, else the route for "*", else the
@@ -146,7 +118,7 @@ func (c *Core) forChatAgent(ctx context.Context, m model.Message) bool {
 // starts after event cursor.
 func (c *Core) startChatAgent(ctx context.Context, chat, name string, cursor int64) error {
 	agentCtx, cancel := context.WithCancel(c.ctx)
-	agent := &chatAgent{chat: chat, cancel: cancel, last: time.Now()}
+	agent := &chatAgent{chat: chat, cancel: cancel, started: time.Now()}
 	c.mu.Lock()
 	_, running := c.agents[name]
 	if !running {
@@ -162,9 +134,12 @@ func (c *Core) startChatAgent(ctx context.Context, chat, name string, cursor int
 		c.dropAgent(name, agent)
 		return err
 	}
+	if pusher == nil {
+		return nil // the agent gets its messages through its own WhatsAgent channel
+	}
 	go func() {
 		defer c.dropAgent(name, agent)
-		if err := c.serve(agentCtx, &subscriber{name: name, push: "agent", pusher: trackedPusher{pusher, agent}}); err != nil {
+		if err := c.serve(agentCtx, &subscriber{name: name, push: "agent", pusher: pusher}); err != nil {
 			c.log.Warn("chat agent stopped", "session", name, "err", err)
 		}
 	}()
@@ -191,7 +166,6 @@ func (c *Core) newChatAgent(ctx, agentCtx context.Context, chat, name string, cu
 	return c.cfg.ChatAgent(agentCtx, AgentHost{
 		Session: name, Chat: chat, ChatName: info.Label(), Name: c.AgentName(ctx), Auto: c.auto(ctx),
 		Post:          func(text string) { c.agentPost(name, chat, text) },
-		Fail:          c.say,
 		SessionID:     id,
 		SaveSessionID: func(id string) error { return c.st.SetSetting(c.ctx, key, id) },
 		Approve: func(ctx context.Context, tool, input string) bool {
@@ -209,6 +183,16 @@ func (c *Core) agentPost(name, chat, text string) {
 	if _, err := c.Send(c.ctx, Caller{Session: name}, chat, text); err != nil {
 		c.log.Warn("send the chat agent's answer", "session", name, "err", err)
 	}
+}
+
+// lastActive is when session last got messages, or since when it runs.
+func (c *Core) lastActive(session string, since time.Time) time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if t := c.delivered[session]; t.After(since) {
+		return t
+	}
+	return since
 }
 
 // dropAgent stops a chat agent and forgets it.
@@ -231,7 +215,7 @@ func (c *Core) stopIdleAgents(ctx context.Context) {
 	}
 	c.mu.Unlock()
 	for name, agent := range agents {
-		if time.Since(agent.idleSince()) < c.cfg.AgentIdle {
+		if time.Since(c.lastActive(name, agent.started)) < c.cfg.AgentIdle {
 			continue
 		}
 		if _, open, err := c.st.Window(ctx, agent.chat); err == nil && !open {

@@ -391,7 +391,6 @@ func (c *Core) startHome(ctx context.Context, harness string) error {
 		Name:          c.AgentName(ctx),
 		Auto:          c.auto(ctx),
 		Post:          c.PostHome,
-		Fail:          c.say,
 		SessionID:     id,
 		SaveSessionID: func(id string) error { return c.st.SetSetting(c.ctx, key, id) },
 		Approve: func(ctx context.Context, tool, input string) bool {
@@ -405,6 +404,9 @@ func (c *Core) startHome(ctx context.Context, harness string) error {
 	c.mu.Lock()
 	c.homeStop, c.homeOn = cancel, harness
 	c.mu.Unlock()
+	if pusher == nil {
+		return nil // home gets its messages through its own WhatsAgent channel
+	}
 	go func() {
 		if err := c.serve(homeCtx, &subscriber{name: homeName, push: harness, pusher: pusher}); err != nil {
 			c.say("Home stopped: " + err.Error())

@@ -17,6 +17,7 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/paths"
 	"github.com/osolmaz/WhatsAgent/internal/store"
+	"github.com/osolmaz/WhatsAgent/internal/term"
 	"github.com/osolmaz/WhatsAgent/internal/wa"
 )
 
@@ -115,18 +116,32 @@ func TestHelpers(t *testing.T) {
 		t.Errorf("turnText = %q", text)
 	}
 	want := `{"mcpServers":{"whatsagent":{"args":["channel"],"command":"/bin/whatsagent",` +
-		`"env":{"WHATSAGENT_HARNESS":"claude","WHATSAGENT_SESSION":"chat-team"},"type":"stdio"}}}`
+		`"env":{"WHATSAGENT_HARNESS":"claude","WHATSAGENT_PUSH":"channel","WHATSAGENT_SESSION":"chat-team"},"type":"stdio"}}}`
 	if got := mcpConfig("/bin/whatsagent", "chat-team"); got != want {
 		t.Errorf("mcpConfig = %s", got)
 	}
 	dir := t.TempDir()
-	start := chatAgents(Options{Dirs: paths.Dirs{Data: dir}, ClaudeBin: "/no/such/claude", Bin: "/bin/whatsagent"}, "self")
-	if _, err := start(context.Background(), core.AgentHost{Session: "chat-team", SaveSessionID: func(string) error { return nil }}); err != nil {
-		t.Fatal(err)
+	start := chatAgents(Options{Dirs: paths.Dirs{Data: dir}, ClaudeBin: "/no/such/claude", Bin: "/bin/whatsagent"}, term.NewHost())
+	if _, err := start(context.Background(), core.AgentHost{Session: "chat-team", SaveSessionID: func(string) error { return nil }}); err == nil {
+		t.Error("a chat agent started without claude")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "agents", "chat-team")); err != nil {
 		t.Errorf("the chat agent got no folder: %v", err)
 	}
+	s := settingStore{openStore(t)}
+	if err := s.Save(`{"theme":"x"}`); err != nil || s.Load() != `{"theme":"x"}` {
+		t.Errorf("settingStore = %q, %v", s.Load(), err)
+	}
+}
+
+func openStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "w.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	return st
 }
 
 type fakeWA struct{}
@@ -153,15 +168,15 @@ func TestBuildAndDiscover(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	c, adapter := build(Options{Dirs: d, CodexSocket: filepath.Join(d.Data, "none.sock")}, st, client)
+	c, adapter := build(Options{Dirs: d, CodexSocket: filepath.Join(d.Data, "none.sock")}, st, client, term.NewHost())
 	if c == nil || adapter == nil {
 		t.Fatal("build returned nil")
 	}
 	if reply, err := c.Run(ctx, core.Owner, "/home codex"); err == nil {
 		t.Errorf("/home codex without a Codex daemon = %q", reply)
 	}
-	if reply, err := c.Run(ctx, core.Owner, "/home claude"); err != nil {
-		t.Errorf("/home claude = %q, %v", reply, err)
+	if reply, err := c.Run(ctx, core.Owner, "/home claude"); err == nil {
+		t.Errorf("/home claude without a claude executable = %q", reply)
 	}
 	if !c.Approve(ctx, core.Caller{Session: "x"}, "t", "i", time.Millisecond) == false {
 		t.Error("Approve without an answer")

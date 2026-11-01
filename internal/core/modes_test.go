@@ -295,8 +295,6 @@ func TestChatAgentLifecycle(t *testing.T) {
 	if got := events(t, agent.fakePusher); got[0].Message.Text != "for the agent" {
 		t.Fatalf("the agent got %+v", got)
 	}
-	agent.host.Fail("chat-team-2 failed: overloaded")
-	h.expect("chat-team-2 failed: overloaded")
 	if err := agent.host.SaveSessionID("abc"); err != nil {
 		t.Fatal(err)
 	}

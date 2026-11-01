@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WhatsAgent</title>
+    <link rel="icon" href="/logo" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <aside id="sidebar">
+      <header id="app-header">
+        <img id="app-logo" src="/logo" alt="" width="22" height="22" />
+        <span id="app-title"></span>
+      </header>
+      <button id="new-session" type="button">+ New session</button>
+      <nav id="sessions" aria-label="Sessions"></nav>
+      <footer id="sidebar-footer">
+        <div id="settings-panel" hidden>
+          <label class="setting">
+            <span>Theme</span>
+            <select id="theme-select"></select>
+          </label>
+          <div class="setting">
+            <span>Accent</span>
+            <div id="accent-swatches" role="radiogroup" aria-label="Accent"></div>
+          </div>
+          <label class="setting">
+            <span>Font size</span>
+            <select id="font-size-select"></select>
+          </label>
+        </div>
+        <button
+          id="settings-button"
+          type="button"
+          aria-expanded="false"
+          aria-controls="settings-panel"
+        >
+          <span aria-hidden="true">⚙</span> Settings
+        </button>
+      </footer>
+    </aside>
+    <main id="main">
+      <div id="terminal"></div>
+      <div id="empty">Start a new session, or pick one on the left.</div>
+      <div id="loading" role="status" aria-live="polite" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <div id="loading-title"></div>
+        <div class="loading-detail">The first start can take a minute.</div>
+      </div>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+    </main>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

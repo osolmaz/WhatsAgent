@@ -54,6 +54,8 @@ A session receives its routed messages in one of three ways:
 - Inside any Claude Code session, run `whatsagent watch --session <name> --chat <chat>` with the Monitor tool. Each new message wakes the session.
 - `whatsagent codex` starts the Codex TUI on the Codex app-server daemon, and WhatsAgent starts a turn in its thread for each batch of messages.
 
+Home and the chat agents run as normal Claude Code sessions in terminals that the daemon keeps. `whatsagent web` opens them in your browser: a list of sessions on the left and the selected agent's terminal on the right, where you can watch it work and type into it. Closing the tab leaves them running.
+
 Scripts can use the daemon too: `whatsagent send --to <chat> --text <text>`, `react`, `media`, `messages`, `search`, `export` and `changes`. A send goes out exactly as written; add `--session <name>` when an agent sends, and WhatsAgent puts the prefix in front. `whatsagent command "/route Sam billing"` runs any self-chat command.
 
 How it works, and what it does not do yet, is in the [plan](docs/2026-10-31-whatsagent-plan.md).

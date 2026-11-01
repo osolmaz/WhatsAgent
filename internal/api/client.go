@@ -94,6 +94,28 @@ func (c *Client) post(ctx context.Context, path string, body []byte, out any) er
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+// WebURL returns the address of the daemon's browser page, with its access token.
+func (c *Client) WebURL(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/web", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	var r ToolResponse
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return "", err
+	}
+	if r.Error != "" {
+		return "", errors.New(r.Error)
+	}
+	var t Text
+	return t.Text, json.Unmarshal(r.Result, &t)
+}
+
 // Permission relays a permission prompt to the owner.
 func (c *Client) Permission(ctx context.Context, req PermissionRequest) error {
 	body, err := json.Marshal(req)

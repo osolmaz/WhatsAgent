@@ -50,7 +50,7 @@ func NewRoot(stdout io.Writer, log *slog.Logger, env paths.Env) *cobra.Command {
 	root.AddCommand(newVersion(), newPaths(env), newLink(env, log), newDaemon(env), newService(env),
 		newStatus(env), newCommand(env), newSend(env), newReact(env), newMedia(env), newChats(env),
 		newMessages(env), newSearch(env), newExport(env), newChanges(env), newWatch(env),
-		newChannel(env), newSetup())
+		newChannel(env), newSetup(), newWeb(env))
 	root.AddCommand(newLaunches()...)
 	return root
 }

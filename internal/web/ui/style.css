@@ -1,0 +1,435 @@
+@font-face {
+  font-family: "Monaspace Argon";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("/fonts/monaspace-argon-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Monaspace Argon";
+  font-style: italic;
+  font-weight: 400;
+  font-display: block;
+  src: url("/fonts/monaspace-argon-400-italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Monaspace Argon";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("/fonts/monaspace-argon-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Monaspace Argon";
+  font-style: italic;
+  font-weight: 700;
+  font-display: block;
+  src: url("/fonts/monaspace-argon-700-italic.woff2") format("woff2");
+}
+
+:root {
+  --background: #eff1f5;
+  --foreground: #4c4f69;
+  --sidebar-background: #e6e9ef;
+  --sidebar-foreground: #4c4f69;
+  --muted: #6c6f85;
+  --accent: #8839ef;
+  --selected: #ccd0da;
+  --border: #bcc0cc;
+  --waiting: #df8e1d;
+  font-family:
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+#sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  min-width: 200px;
+  padding: 12px 8px;
+  gap: 8px;
+  background: var(--sidebar-background);
+  color: var(--sidebar-foreground);
+  border-right: 1px solid var(--border);
+}
+
+#app-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 8px;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+#app-logo {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+#sidebar-footer {
+  position: relative;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+#settings-button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#settings-button:hover,
+#settings-button[aria-expanded="true"] {
+  background: var(--selected);
+  color: var(--foreground);
+}
+
+#settings-panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+}
+
+#settings-panel[hidden] {
+  display: none;
+}
+
+.setting {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.setting select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--sidebar-background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+}
+
+#accent-swatches {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.swatch {
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.swatch[aria-checked="true"] {
+  border-color: var(--foreground);
+}
+
+#new-session {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#new-session:hover {
+  border-color: var(--accent);
+}
+
+#sessions {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.group {
+  padding: 12px 8px 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.session {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session:hover,
+.session:focus-visible {
+  background: var(--selected);
+  outline: none;
+}
+
+.session.selected {
+  background: var(--selected);
+  font-weight: 500;
+}
+
+.session .title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.more {
+  flex: none;
+  visibility: hidden;
+  width: 24px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.session:hover .more,
+.session.selected .more,
+.more:focus-visible {
+  visibility: visible;
+}
+
+.more:hover {
+  background: var(--border);
+  color: var(--foreground);
+}
+
+.rename {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+
+#menu {
+  position: fixed;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--background);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+}
+
+#menu button {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#menu button:hover,
+#menu button:focus-visible {
+  background: var(--selected);
+  outline: none;
+}
+
+.dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.dot.responding {
+  background: var(--accent);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot.waiting {
+  background: var(--waiting);
+}
+
+.dot.starting {
+  background: var(--muted);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+#main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+#terminal {
+  position: absolute;
+  inset: 8px 0 0 12px;
+}
+
+/* ghostty-web makes the terminal contenteditable, so the browser would draw its own text caret
+   next to the TUI's cursor. Pi draws the only cursor. */
+#terminal,
+#terminal * {
+  caret-color: transparent;
+  outline: none;
+}
+
+#empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+#empty[hidden] {
+  display: none;
+}
+
+/* Covers the blank terminal while Pi starts. It lets clicks through, so the terminal keeps focus. */
+#loading {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  background: var(--background);
+  color: var(--foreground);
+  pointer-events: none;
+}
+
+#loading[hidden] {
+  display: none;
+}
+
+.loading-detail {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner,
+  .dot.starting,
+  .dot.responding {
+    animation-duration: 3s;
+  }
+}
+
+#notice {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  z-index: 20;
+  max-width: 420px;
+  padding: 10px 14px;
+  border: 1px solid var(--waiting);
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 12%);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+#notice[hidden] {
+  display: none;
+}
+
+/* WhatsAgent starts and names its sessions itself, so the page offers neither a new session nor
+   a rename or delete menu. */
+#new-session,
+.more {
+  display: none !important;
+}

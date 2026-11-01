@@ -68,11 +68,14 @@ go:
         - internal/model
         - internal/paths
         - internal/store
+        - internal/term
         - internal/wa
+        - internal/web
     - from: internal/home
       allow:
         - internal/core
         - internal/model
+        - internal/term
     - from: internal/mcp
       allow:
         - internal/api
@@ -98,7 +101,12 @@ go:
         - internal/daemon
         - internal/model
         - internal/store
+    - from: internal/term
+      allow: []
     - from: internal/wa
       allow:
         - internal/model
         - internal/sqlitedb
+    - from: internal/web
+      allow:
+        - internal/term

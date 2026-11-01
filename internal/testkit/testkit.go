@@ -100,7 +100,7 @@ func Start(t *testing.T, socket string) *Daemon {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Handler: api.NewServer(c), ReadHeaderTimeout: time.Second}
+	server := &http.Server{Handler: api.NewServer(c, "http://127.0.0.1:1/?token=test"), ReadHeaderTimeout: time.Second}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
 		cancel()

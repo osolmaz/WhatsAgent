@@ -229,6 +229,9 @@ func (c *Core) deliver(ctx context.Context, sub *subscriber) error {
 		if err := sub.pusher.Push(ctx, events.keep); err != nil {
 			return err
 		}
+		c.mu.Lock()
+		c.delivered[sub.name] = time.Now()
+		c.mu.Unlock()
 	}
 	if len(events.all) == eventBatch {
 		wake(sub)

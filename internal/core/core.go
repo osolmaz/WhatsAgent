@@ -45,10 +45,9 @@ type AgentHost struct {
 	ChatName string
 	// Name is the agents' name when the agent starts.
 	Name string
-	// Post sends one of the agent's answers: home's to the self-chat, a chat agent's to its chat.
+	// Post sends one of the agent's answers, for an agent whose harness hands WhatsAgent its
+	// final answer in a turn: home's to the self-chat, a chat agent's to its chat.
 	Post func(text string)
-	// Fail tells the owner in the self-chat that a turn of the agent failed.
-	Fail func(text string)
 	// SessionID is the stored ID of the agent's harness session, or "" for a fresh one.
 	SessionID string
 	// SaveSessionID stores the ID of the agent's harness session, so it continues after a restart.
@@ -60,7 +59,9 @@ type AgentHost struct {
 	Auto bool
 }
 
-// AgentFactory starts an agent on one harness.
+// AgentFactory starts an agent on one harness. It returns the Pusher that delivers the agent's
+// messages, or nil for an agent that gets them through its own WhatsAgent channel. The agent
+// stops when ctx ends.
 type AgentFactory func(ctx context.Context, host AgentHost) (Pusher, error)
 
 // Config holds what the core needs.
@@ -124,6 +125,8 @@ type Core struct {
 	homeStop context.CancelFunc
 	homeOn   string
 	agents   map[string]*chatAgent
+	// delivered is when each session last got messages.
+	delivered map[string]time.Time
 
 	sendMu   sync.Mutex
 	lastSend time.Time
@@ -144,18 +147,19 @@ func New(cfg Config) *Core {
 		cfg.AgentIdle = 15 * time.Minute
 	}
 	return &Core{
-		cfg:     cfg,
-		st:      cfg.Store,
-		wa:      cfg.WhatsApp,
-		log:     cfg.Log,
-		ctx:     context.Background(),
-		outbox:  make(chan string, 64),
-		state:   "starting",
-		conns:   map[string]*conn{},
-		subs:    map[string]*subscriber{},
-		pending: map[string]*pending{},
-		closed:  map[string]time.Time{},
-		agents:  map[string]*chatAgent{},
+		cfg:       cfg,
+		st:        cfg.Store,
+		wa:        cfg.WhatsApp,
+		log:       cfg.Log,
+		ctx:       context.Background(),
+		outbox:    make(chan string, 64),
+		state:     "starting",
+		conns:     map[string]*conn{},
+		subs:      map[string]*subscriber{},
+		pending:   map[string]*pending{},
+		closed:    map[string]time.Time{},
+		agents:    map[string]*chatAgent{},
+		delivered: map[string]time.Time{},
 	}
 }
 

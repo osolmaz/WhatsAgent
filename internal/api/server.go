@@ -61,8 +61,15 @@ type Server struct {
 }
 
 // NewServer returns the API server for c.
-func NewServer(c *core.Core) *Server {
+func NewServer(c *core.Core, webURL string) *Server {
 	s := &Server{core: c, tools: tools(), mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /v1/web", func(w http.ResponseWriter, _ *http.Request) {
+		if webURL == "" {
+			reply(w, nil, errors.New("the daemon serves no browser page"))
+			return
+		}
+		reply(w, Text{webURL}, nil)
+	})
 	s.mux.HandleFunc("GET /v1/session", s.session)
 	s.mux.HandleFunc("GET /v1/watch", s.watch)
 	s.mux.HandleFunc("POST /v1/tool", s.tool)

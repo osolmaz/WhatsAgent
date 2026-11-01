@@ -3,11 +3,9 @@ package home
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,22 +13,13 @@ import (
 
 	"github.com/osolmaz/WhatsAgent/internal/core"
 	"github.com/osolmaz/WhatsAgent/internal/model"
+	"github.com/osolmaz/WhatsAgent/internal/term"
 )
 
-// TestMain lets the test binary stand in for claude: with FAKE_CLAUDE set, it answers each
-// stream-json user message with a result line that echoes it.
+// TestMain lets the test binary stand in for claude: with FAKE_CLAUDE set, it records its
+// arguments, asks Claude Code's two startup questions, says READY, and ends at the line "quit".
 func TestMain(m *testing.M) {
-	switch os.Getenv("FAKE_CLAUDE") {
-	case "echo":
-		fakeClaude()
-		return
-	case "noresume":
-		// Like claude, a resume of an unknown session prints an error result and exits.
-		if slices.Contains(os.Args, "--resume") {
-			fmt.Println(`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"",` +
-				`"errors":["No conversation found with session ID: old-session"]}`)
-			os.Exit(1)
-		}
+	if os.Getenv("FAKE_CLAUDE") == "interactive" {
 		fakeClaude()
 		return
 	}
@@ -38,46 +27,41 @@ func TestMain(m *testing.M) {
 }
 
 func fakeClaude() {
-	if path := os.Getenv("FAKE_CLAUDE_ARGS"); path != "" {
-		args := append(os.Args[1:], "WHATSAGENT_SESSION="+os.Getenv("WHATSAGENT_SESSION"))
-		_ = os.WriteFile(path, []byte(strings.Join(args, "\n")), 0o600)
-	}
-	fmt.Println(`{"type":"system","subtype":"init","session_id":"s"}`)
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		var line struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
+	args := append(os.Args[1:], "WHATSAGENT_SESSION="+os.Getenv("WHATSAGENT_SESSION"), "TERM="+os.Getenv("TERM"))
+	f, _ := os.OpenFile(os.Getenv("FAKE_CLAUDE_ARGS"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	fmt.Fprintln(f, strings.Join(args, "\n")+"\n--")
+	f.Close()
+	in := bufio.NewReader(os.Stdin)
+	for _, question := range []string{"\x1b[1mI am\x1b[0m using this for local\x1b[1Cdevelopment", "Yes, I trust this folder"} {
+		fmt.Println(question)
+		// The terminal is in cooked mode here, so the Enter key's \r arrives as \n.
+		if b, err := in.ReadByte(); err != nil || (b != '\r' && b != '\n') {
+			fmt.Println("bad answer")
+			os.Exit(1)
 		}
-		_ = json.Unmarshal(scanner.Bytes(), &line)
-		result, _ := json.Marshal(map[string]any{"type": "result", "result": "echo: " + line.Message.Content,
-			"is_error": strings.Contains(line.Message.Content, "fail")})
-		fmt.Println("not json")
-		fmt.Println(string(result))
+	}
+	fmt.Println("READY")
+	for {
+		line, err := in.ReadString('\n')
+		if err != nil || strings.TrimSpace(line) == "quit" {
+			return
+		}
+		fmt.Println("got " + strings.TrimSpace(line))
 	}
 }
 
 type host struct {
-	mu    sync.Mutex
-	posts chan string
-	id    string
+	mu sync.Mutex
+	id string
 }
 
-func newHost(id string) *host { return &host{posts: make(chan string, 10), id: id} }
-
-func (h *host) homeHost() core.AgentHost {
-	return core.AgentHost{
-		Post:      func(text string) { h.posts <- text },
-		Fail:      func(text string) { h.posts <- text },
-		SessionID: h.id,
-		SaveSessionID: func(id string) error {
-			h.mu.Lock()
-			h.id = id
-			h.mu.Unlock()
-			return nil
-		},
-	}
+func (h *host) agentHost(session string) core.AgentHost {
+	return core.AgentHost{Session: session, SessionID: h.saved(), Auto: true, SaveSessionID: func(id string) error {
+		h.mu.Lock()
+		h.id = id
+		h.mu.Unlock()
+		return nil
+	}}
 }
 
 func (h *host) saved() string {
@@ -86,16 +70,44 @@ func (h *host) saved() string {
 	return h.id
 }
 
-func (h *host) expect(t *testing.T, want string) {
+// output collects what a session prints.
+type output struct {
+	mu   sync.Mutex
+	text strings.Builder
+}
+
+func (o *output) viewer() term.Viewer {
+	return term.Viewer{Data: func(p []byte) {
+		o.mu.Lock()
+		o.text.Write(p)
+		o.mu.Unlock()
+	}, Exit: func() {}}
+}
+
+func (o *output) wait(t *testing.T, want string) {
 	t.Helper()
-	select {
-	case got := <-h.posts:
-		if !strings.Contains(got, want) {
-			t.Fatalf("posted %q, want %q", got, want)
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		o.mu.Lock()
+		done := strings.Contains(o.text.String(), want)
+		o.mu.Unlock()
+		if done {
+			return
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatalf("nothing posted, want %q", want)
 	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	t.Fatalf("no %q in %q", want, o.text.String())
+}
+
+// attach waits for the session to run and attaches out to it.
+func attach(t *testing.T, terminals *term.Host, name string, out *output) {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if _, ok := terminals.Attach(name, 80, 24, out.viewer()); ok {
+			return
+		}
+	}
+	t.Fatalf("session %s did not start", name)
 }
 
 const selfChat = "100@s.whatsapp.net"
@@ -119,130 +131,85 @@ func TestPrompt(t *testing.T) {
 	if senderOf(model.Message{FromMe: true}) != "the owner" || senderOf(model.Message{Sender: "x"}) != "x" {
 		t.Error("senderOf is wrong")
 	}
+	if !strings.Contains(ChatInstructions("Bob", "Team", "g@g.us"), `You are Bob, the WhatsApp agent of the owner, in the chat "Team" (chat_id g@g.us)`) {
+		t.Error("ChatInstructions is wrong")
+	}
 }
 
-func TestClaudeHome(t *testing.T) {
+func TestStartClaudeInTerminal(t *testing.T) {
 	bin, _ := os.Executable()
 	argsFile := filepath.Join(t.TempDir(), "args")
-	t.Setenv("FAKE_CLAUDE", "echo")
+	t.Setenv("FAKE_CLAUDE", "interactive")
 	t.Setenv("FAKE_CLAUDE_ARGS", argsFile)
 	t.Setenv("CLAUDECODE", "1")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	h := newHost("")
-	home, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: filepath.Join(t.TempDir(), "home"), SelfChat: selfChat,
-		Location: time.UTC, Args: []string{"--model", "claude-opus-5-5"}}, h.homeHost())
-	if err != nil {
-		t.Fatal(err)
+	terminals, h := term.NewHost(), &host{}
+	opts := ClaudeOptions{Terminals: terminals, Bin: bin, Dir: filepath.Join(t.TempDir(), "chat-team"), Title: "Team",
+		Instructions: "be Bob", Tools: []string{"WebSearch"}, MCPConfig: `{"mcpServers":{}}`, ConfigDir: t.TempDir(),
+		Args: []string{"--model", "claude-opus-5-5"}, Restart: 10 * time.Millisecond}
+	pusher, err := StartClaude(ctx, opts, h.agentHost("chat-team"))
+	if err != nil || pusher != nil {
+		t.Fatalf("StartClaude = %v, %v", pusher, err)
 	}
-	if h.saved() != "" {
-		t.Fatal("home saved the ID of a session that has no conversation yet")
-	}
-	if err := home.Push(ctx, nil); err != nil {
-		t.Fatal(err)
-	}
-	if err := home.Push(ctx, []model.Event{event(selfChat, "hello home", true)}); err != nil {
-		t.Fatal(err)
-	}
-	h.expect(t, "echo: [2026-11-01 01:00] The owner wrote in the self-chat: hello home")
-	if h.saved() == "" {
-		t.Fatal("home saved no session ID after its conversation started")
-	}
-	_ = home.Push(ctx, []model.Event{event(selfChat, "please fail", true)})
-	h.expect(t, "home failed: echo:")
+	out := &output{}
+	attach(t, terminals, "chat-team", out)
+	out.wait(t, "READY")
+	terminals.Input("chat-team", "hello\r")
+	out.wait(t, "got hello")
+	first := h.saved()
 	args, _ := os.ReadFile(argsFile)
-	for _, want := range []string{"--session-id\n" + h.saved(), "--permission-prompt-tool\nmcp__whatsagent__approve",
-		"--allowedTools\nmcp__whatsagent", "--model\nclaude-opus-5-5", "WHATSAGENT_SESSION=home"} {
+	for _, want := range []string{"--dangerously-load-development-channels\nserver:whatsagent", "--append-system-prompt\nbe Bob",
+		"--allowedTools\nmcp__whatsagent", "--strict-mcp-config\n--mcp-config\n{\"mcpServers\":{}}", "--permission-mode\nauto",
+		"--tools\nWebSearch", "--session-id\n" + first, "--model\nclaude-opus-5-5", "WHATSAGENT_SESSION=chat-team",
+		"TERM=xterm-256color"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args %q missing %q", args, want)
 		}
 	}
-	if strings.Contains(string(args), "--tools") || strings.Contains(string(args), "--strict-mcp-config") ||
-		strings.Contains(string(args), "--permission-mode") {
-		t.Errorf("home's tools were limited: %q", args)
+	if strings.Contains(string(args), "CLAUDECODE") {
+		t.Error("the agent inherited a session marker")
 	}
-	if err := home.Verdict(ctx, "x", true); err != nil {
-		t.Error(err)
-	}
-	if env := cleanEnv([]string{"CLAUDECODE=1", "PATH=/bin", "CLAUDE_CODE_SESSION_ID=x"}); len(env) != 1 || env[0] != "PATH=/bin" {
-		t.Errorf("cleanEnv = %v", env)
-	}
-	if _, err := (logWriter{home.opts.Log}).Write([]byte("stderr line\n")); err != nil {
-		t.Error(err)
-	}
-}
 
-func TestClaudeHomeResumesAndRecovers(t *testing.T) {
-	bin, _ := os.Executable()
-	argsFile := filepath.Join(t.TempDir(), "args")
-	t.Setenv("FAKE_CLAUDE_ARGS", argsFile)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// A session that Claude Code cannot resume makes home start a fresh one and send the same
-	// message again, without an error for the owner.
-	t.Setenv("FAKE_CLAUDE", "noresume")
-	h := newHost("old-session")
-	home, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat}, h.homeHost())
-	if err != nil {
+	// Once Claude Code keeps a transcript, the agent's next process resumes that session.
+	transcript := filepath.Join(opts.ConfigDir, "projects", nonAlphanumeric.ReplaceAllString(opts.Dir, "-"), first+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	_ = home.Push(ctx, []model.Event{event(selfChat, "one", true)})
-	if got := <-h.posts; !strings.Contains(got, "echo:") || !strings.HasSuffix(got, "one") {
-		t.Fatalf("after a failed resume home posted %q", got)
-	}
-	deadline := time.Now().Add(5 * time.Second)
-	for h.saved() == "old-session" && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
-	}
-	if h.saved() == "old-session" || h.saved() == "" {
-		t.Fatalf("home kept session %q", h.saved())
-	}
-
-	t.Setenv("FAKE_CLAUDE", "echo")
-	resumed := newHost("kept-session")
-	home, _ = NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat}, resumed.homeHost())
-	_ = home.Push(ctx, []model.Event{event(selfChat, "two", true)})
-	resumed.expect(t, "two")
-	if args, _ := os.ReadFile(argsFile); !strings.Contains(string(args), "--resume\nkept-session") {
-		t.Errorf("args = %q", args)
-	}
-
-	if _, err := NewClaude(ctx, ClaudeOptions{Bin: "/no/such/claude", Dir: "/proc/no/such/dir"}, newHost("").homeHost()); err == nil {
-		t.Error("NewClaude in an unwritable folder gave no error")
-	}
-	broken, _ := NewClaude(ctx, ClaudeOptions{Bin: "/no/such/claude", Dir: t.TempDir()}, newHost("x").homeHost())
-	if err := broken.Push(ctx, []model.Event{event(selfChat, "x", true)}); err == nil {
-		t.Error("a missing claude binary gave no error")
-	}
-}
-
-func TestClaudeChatAgent(t *testing.T) {
-	bin, _ := os.Executable()
-	argsFile := filepath.Join(t.TempDir(), "args")
-	t.Setenv("FAKE_CLAUDE", "echo")
-	t.Setenv("FAKE_CLAUDE_ARGS", argsFile)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	h := newHost("")
-	host := h.homeHost()
-	host.Session, host.Auto = "chat-team", true
-	instructions := ChatInstructions("Bob", "Team", "g@g.us")
-	agent, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat, Instructions: instructions,
-		Tools: []string{"WebSearch", "WebFetch"}, MCPConfig: `{"mcpServers":{}}`}, host)
-	if err != nil {
+	if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_ = agent.Push(ctx, []model.Event{event("g@g.us", "please fail", false)})
-	h.expect(t, "chat-team failed: echo:")
-	args, _ := os.ReadFile(argsFile)
-	for _, want := range []string{"--append-system-prompt\n" + instructions, "--tools\nWebSearch,WebFetch",
-		"--strict-mcp-config\n--mcp-config\n{\"mcpServers\":{}}", "WHATSAGENT_SESSION=chat-team", "--permission-mode\nauto"} {
-		if !strings.Contains(string(args), want) {
-			t.Errorf("args %q missing %q", args, want)
+	terminals.Input("chat-team", "quit\r")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if args, _ := os.ReadFile(argsFile); strings.Contains(string(args), "--resume\n"+first) {
+			break
 		}
 	}
-	if !strings.Contains(instructions, `You are Bob`) || !strings.Contains(instructions, `"Team" (chat_id g@g.us)`) {
-		t.Errorf("ChatInstructions = %q", instructions)
+	if args, _ := os.ReadFile(argsFile); !strings.Contains(string(args), "--resume\n"+first) || h.saved() != first {
+		t.Errorf("the restarted agent did not resume %s: %q", first, args)
+	}
+	cancel()
+	for deadline := time.Now().Add(5 * time.Second); terminals.Running("chat-team") && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if terminals.Running("chat-team") {
+		t.Error("the agent outlived its context")
+	}
+}
+
+func TestStartClaudeFailures(t *testing.T) {
+	h := &host{}
+	if _, err := StartClaude(context.Background(), ClaudeOptions{Terminals: term.NewHost(), Bin: "/no/such/claude",
+		Dir: t.TempDir()}, h.agentHost("x")); err == nil {
+		t.Error("a missing claude gave no error")
+	}
+	if _, err := StartClaude(context.Background(), ClaudeOptions{Dir: "/proc/no/such/dir"}, h.agentHost("x")); err == nil {
+		t.Error("an unwritable folder gave no error")
+	}
+	if dir := ConfigDir(func(string) string { return "/cfg" }, "/home/sam"); dir != "/cfg" {
+		t.Errorf("ConfigDir with CLAUDE_CONFIG_DIR = %q", dir)
+	}
+	if dir := ConfigDir(func(string) string { return "" }, "/home/sam"); dir != "/home/sam/.claude" {
+		t.Errorf("ConfigDir = %q", dir)
 	}
 }
