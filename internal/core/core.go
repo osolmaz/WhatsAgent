@@ -55,6 +55,9 @@ type AgentHost struct {
 	SaveSessionID func(id string) error
 	// Approve asks the owner whether the agent may use a tool and waits for the answer.
 	Approve func(ctx context.Context, tool, input string) bool
+	// Auto turns on the harness's own automatic approval: Claude Code's auto mode, or Codex's
+	// auto review. The harness still sends the requests it will not decide to Approve.
+	Auto bool
 }
 
 // AgentFactory starts an agent on one harness.

@@ -157,7 +157,8 @@ func TestClaudeHome(t *testing.T) {
 			t.Errorf("args %q missing %q", args, want)
 		}
 	}
-	if strings.Contains(string(args), "--tools") || strings.Contains(string(args), "--strict-mcp-config") {
+	if strings.Contains(string(args), "--tools") || strings.Contains(string(args), "--strict-mcp-config") ||
+		strings.Contains(string(args), "--permission-mode") {
 		t.Errorf("home's tools were limited: %q", args)
 	}
 	if err := home.Verdict(ctx, "x", true); err != nil {
@@ -225,7 +226,7 @@ func TestClaudeChatAgent(t *testing.T) {
 	defer cancel()
 	h := newHost("")
 	host := h.homeHost()
-	host.Session = "chat-team"
+	host.Session, host.Auto = "chat-team", true
 	instructions := ChatInstructions("Bob", "Team", "g@g.us")
 	agent, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat, Instructions: instructions,
 		Tools: []string{"WebSearch", "WebFetch"}, MCPConfig: `{"mcpServers":{}}`}, host)
@@ -236,7 +237,7 @@ func TestClaudeChatAgent(t *testing.T) {
 	h.expect(t, "chat-team failed: echo:")
 	args, _ := os.ReadFile(argsFile)
 	for _, want := range []string{"--append-system-prompt\n" + instructions, "--tools\nWebSearch,WebFetch",
-		"--strict-mcp-config\n--mcp-config\n{\"mcpServers\":{}}", "WHATSAGENT_SESSION=chat-team"} {
+		"--strict-mcp-config\n--mcp-config\n{\"mcpServers\":{}}", "WHATSAGENT_SESSION=chat-team", "--permission-mode\nauto"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args %q missing %q", args, want)
 		}

@@ -16,6 +16,7 @@ import (
 const (
 	settingName   = "agent.name"
 	settingPrefix = "agent.prefix"
+	settingAuto   = "agent.auto"
 	defaultName   = "Agent"
 	defaultPrefix = "🤖 *{name}*:"
 	// prefixOff is the /prefix value that turns the prefix off.
@@ -93,6 +94,50 @@ func cmdName(ctx context.Context, c *Core, args string) (string, error) {
 	}
 	return fmt.Sprintf("The agents are now called %s. A message that contains %q reaches the routes that "+
 		"take only addressed messages.", args, args), nil
+}
+
+// auto reports whether the agents that WhatsAgent starts use their harness's automatic approval.
+func (c *Core) auto(ctx context.Context) bool {
+	return c.setting(ctx, settingAuto, "on") == "on"
+}
+
+func cmdAuto(ctx context.Context, c *Core, args string) (string, error) {
+	switch arg := strings.ToLower(args); arg {
+	case "":
+	case "on", "off":
+		if err := c.st.SetSetting(ctx, settingAuto, arg); err != nil {
+			return "", err
+		}
+		if err := c.restartAgents(ctx); err != nil {
+			return "", err
+		}
+	default:
+		return "", errors.New("use /auto on or /auto off")
+	}
+	if c.auto(ctx) {
+		return "Auto approval is on: home and the chat agents decide their own tool calls with Claude Code's " +
+			"auto mode or Codex's auto review, and ask you only when the harness will not decide.", nil
+	}
+	return "Auto approval is off: home and the chat agents ask you before each tool call that needs approval.", nil
+}
+
+// restartAgents starts home again and stops the running chat agents, so they pick up a changed
+// setting. A chat agent starts again with its chat's next message.
+func (c *Core) restartAgents(ctx context.Context) error {
+	c.mu.Lock()
+	harness := c.homeOn
+	agents := make(map[string]*chatAgent, len(c.agents))
+	for name, agent := range c.agents {
+		agents[name] = agent
+	}
+	c.mu.Unlock()
+	for name, agent := range agents {
+		c.dropAgent(name, agent)
+	}
+	if harness == "" {
+		return nil
+	}
+	return c.startHome(ctx, harness)
 }
 
 func cmdPrefix(ctx context.Context, c *Core, args string) (string, error) {

@@ -21,6 +21,16 @@ type Home struct {
 	last string
 }
 
+// reviewed adds Codex's auto review to thread parameters when the host turns on auto approval,
+// so a subagent decides home's approval requests and only the ones it will not decide reach the
+// owner.
+func reviewed(host core.AgentHost, params map[string]any) map[string]any {
+	if host.Auto {
+		params["approvalsReviewer"] = "auto_review"
+	}
+	return params
+}
+
 // NewHome continues home's stored thread, or starts a new one in dir with instructions.
 func (a *Adapter) NewHome(ctx context.Context, host core.AgentHost, dir, instructions string,
 	format func([]model.Event) string) (*Home, error) {
@@ -30,10 +40,10 @@ func (a *Adapter) NewHome(ctx context.Context, host core.AgentHost, dir, instruc
 	}
 	var err error
 	if host.SessionID != "" {
-		err = a.call(ctx, "thread/resume", map[string]any{"threadId": host.SessionID}, &started)
+		err = a.call(ctx, "thread/resume", reviewed(host, map[string]any{"threadId": host.SessionID}), &started)
 	}
 	if host.SessionID == "" || err != nil {
-		params := map[string]any{"cwd": dir, "developerInstructions": instructions}
+		params := reviewed(host, map[string]any{"cwd": dir, "developerInstructions": instructions})
 		if err = a.call(ctx, "thread/start", params, &started); err != nil {
 			return nil, err
 		}

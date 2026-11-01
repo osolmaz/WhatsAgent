@@ -198,6 +198,9 @@ func (h *Claude) args() []string {
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--append-system-prompt", h.opts.Instructions, "--permission-prompt-tool", "mcp__whatsagent__approve",
 		"--allowedTools", whatsAgentTools}
+	if h.host.Auto {
+		args = append(args, "--permission-mode", "auto")
+	}
 	if len(h.opts.Tools) > 0 {
 		args = append(args, "--tools", strings.Join(h.opts.Tools, ","))
 	}

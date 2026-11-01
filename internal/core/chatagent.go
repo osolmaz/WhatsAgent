@@ -189,7 +189,7 @@ func (c *Core) newChatAgent(ctx, agentCtx context.Context, chat, name string, cu
 		return nil, err
 	}
 	return c.cfg.ChatAgent(agentCtx, AgentHost{
-		Session: name, Chat: chat, ChatName: info.Label(), Name: c.AgentName(ctx),
+		Session: name, Chat: chat, ChatName: info.Label(), Name: c.AgentName(ctx), Auto: c.auto(ctx),
 		Post:          func(text string) { c.agentPost(name, chat, text) },
 		Fail:          c.say,
 		SessionID:     id,

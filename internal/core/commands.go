@@ -42,6 +42,8 @@ func init() {
 		{"deny", "/deny <session> <chat>", "Stop a session from sending to a chat.", true, ruleCommand(model.Deny)},
 		{"rules", "/rules", "List the send rules.", false, cmdRules},
 		{"name", "/name [<name>]", "Show or set the agents' name, which is also their trigger word.", true, cmdName},
+		{"auto", "/auto [on|off]", "Show or set whether home and the chat agents approve their own tool calls, " +
+			"with Claude Code's auto mode or Codex's auto review. It is on by default.", true, cmdAuto},
 		{"prefix", "/prefix [<text>|off]", "Show or set the text in front of every agent message. " +
 			"{name} and {session} are filled in, \\n is a line break, and WhatsApp formatting such as *bold* works.",
 			true, cmdPrefix},
@@ -387,6 +389,7 @@ func (c *Core) startHome(ctx context.Context, harness string) error {
 	pusher, err := factory(homeCtx, AgentHost{
 		Session:       homeName,
 		Name:          c.AgentName(ctx),
+		Auto:          c.auto(ctx),
 		Post:          c.PostHome,
 		Fail:          c.say,
 		SessionID:     id,

@@ -42,7 +42,7 @@ In your WhatsApp "Message Yourself" chat, send `/help` for the commands. The mos
 | `/mode <chat> off\|keyword\|window\|all` | Set what agents see of a chat; `*` sets every chat |
 | `/allow <session> <chat>` | Let a session send to a chat without asking; `/ask` and `/deny` set the other rules |
 
-When a session wants to send somewhere its rules do not allow, WhatsAgent asks you in the self-chat, and you answer with its two-digit code, such as `yes 42` or `no 42`.
+When a session wants to send somewhere its rules do not allow, WhatsAgent asks you in the self-chat, and you answer with its two-digit code, such as `yes 42` or `no 42`. Home and the chat agents approve their own tool calls with Claude Code's auto mode or Codex's auto review, and ask you only when the harness will not decide; `/auto off` makes them ask every time.
 
 Each chat has a mode that decides what an agent sees of it. In the default `window` mode, the agent sees nothing until you wake it in the chat, for example with "Bob, wake up" or "Bob start"; its name alone does nothing. Then it can read the last 30 minutes and every new message for an hour. Naming it again extends that hour, and "Bob stop watching" ends it. The agent says in the chat when it starts monitoring and when it is done. Only your own messages can call it, never other people's. The `keyword` mode shows the agent only your messages that name it, `all` shows everything, and `off` shows nothing. A chat without a route gets its own agent, which can read only what the chat's mode shows. `/window` changes the window length, the lookback, the stop phrases and the two messages. The [chat modes specification](docs/2026-11-01-chat-modes.md) has the details.
 

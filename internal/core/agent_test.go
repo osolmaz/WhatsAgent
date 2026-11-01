@@ -3,6 +3,7 @@ package core
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/osolmaz/WhatsAgent/internal/model"
 )
@@ -76,6 +77,47 @@ func TestAgentNameAndPrefix(t *testing.T) {
 	_, _ = h.core.Run(ctx, Owner, "/prefix off")
 	_, _ = h.core.Send(ctx, helper, "self", "plain")
 	h.expectText("plain")
+}
+
+func TestAutoApproval(t *testing.T) {
+	h := newHarness(t)
+	ctx := h.ctx
+	if reply, _ := h.core.Run(ctx, Owner, "/auto"); !strings.HasPrefix(reply, "Auto approval is on") {
+		t.Errorf("/auto = %q", reply)
+	}
+	_, _ = h.core.Run(ctx, Owner, "/home claude")
+	h.core.OnChatName("g@g.us", "Team")
+	_, _ = h.core.Run(ctx, Owner, "/mode Team all")
+	h.receive("g@g.us", "hello", false)
+	agent := h.agent("chat-team")
+	if !agent.host.Auto {
+		t.Error("a chat agent started without auto approval")
+	}
+	if reply, err := h.core.Run(ctx, Owner, "/auto off"); err != nil || !strings.HasPrefix(reply, "Auto approval is off") {
+		t.Fatalf("/auto off = %q, %v", reply, err)
+	}
+	if h.running("chat-team") {
+		t.Error("/auto off left the chat agent running")
+	}
+	h.receive("g@g.us", "again", false)
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		h.mu.Lock()
+		restarted := agent.starts == 2 && !agent.host.Auto
+		h.mu.Unlock()
+		if restarted {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if agent.starts != 2 || agent.host.Auto {
+		t.Errorf("after /auto off: starts = %d, auto = %v", agent.starts, agent.host.Auto)
+	}
+	if _, err := h.core.Run(ctx, Owner, "/auto maybe"); err == nil {
+		t.Error("/auto maybe gave no error")
+	}
 }
 
 // expectText waits for a sent message and checks that its text is exactly want.

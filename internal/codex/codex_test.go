@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -27,6 +28,8 @@ type fakeDaemon struct {
 	wmu     sync.Mutex
 	replies chan map[string]any
 	resume  bool
+	// reviewers records the approvalsReviewer of each thread/start and thread/resume.
+	reviewers []any
 }
 
 // shortDir returns a folder under /tmp, because a Unix socket path must stay under 104 bytes.
@@ -125,8 +128,10 @@ func (d *fakeDaemon) answer(method string, params any) (any, string) {
 		d.turns = append(d.turns, p["threadId"].(string)+": "+input["text"].(string))
 		return map[string]any{}, ""
 	case "thread/start":
+		d.reviewers = append(d.reviewers, p["approvalsReviewer"])
 		return map[string]any{"thread": map[string]any{"id": "home-1"}}, ""
 	case "thread/resume":
+		d.reviewers = append(d.reviewers, p["approvalsReviewer"])
 		if !d.resume {
 			return nil, "gone"
 		}
@@ -273,7 +278,7 @@ func TestHome(t *testing.T) {
 	if err := home.Verdict(ctx, "x", true); err != nil {
 		t.Error(err)
 	}
-	host.SessionID = "old"
+	host.SessionID, host.Auto = "old", true
 	if resumed, err := a.NewHome(ctx, host, "/home", "", format); err != nil || resumed.ThreadID() != "old" {
 		t.Errorf("resume = %v, %v", resumed, err)
 	}
@@ -282,6 +287,11 @@ func TestHome(t *testing.T) {
 	d.mu.Unlock()
 	if fresh, err := a.NewHome(ctx, host, "/home", "", format); err != nil || fresh.ThreadID() != "home-1" {
 		t.Errorf("fresh after a failed resume = %v, %v", fresh, err)
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if want := []any{nil, "auto_review", "auto_review", "auto_review"}; fmt.Sprint(d.reviewers) != fmt.Sprint(want) {
+		t.Errorf("approval reviewers = %v, want %v", d.reviewers, want)
 	}
 }
 
