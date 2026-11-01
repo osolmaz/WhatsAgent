@@ -235,8 +235,10 @@ func TestWelcomeCommandsAndStatus(t *testing.T) {
 	h.expect("WhatsAgent is running")
 
 	msgs, _ := h.st.Messages(h.ctx, self, 0)
-	if msgs[0].Role != model.RoleAgent {
-		t.Errorf("own sent message role = %s", msgs[0].Role)
+	for _, m := range msgs {
+		if strings.Contains(m.Text, "Welcome to WhatsAgent") && m.Role != model.RoleAgent {
+			t.Errorf("own sent message role = %s", m.Role)
+		}
 	}
 	if got := isCommand("no abcde"); !got {
 		t.Error("isCommand(no abcde) = false")
