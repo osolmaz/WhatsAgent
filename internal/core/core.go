@@ -97,9 +97,8 @@ const (
 	approvalTimeout = 30 * time.Minute
 )
 
-// verdictPattern matches an approval answer such as "yes abcde". The code alphabet skips "l",
-// as Claude Code's request IDs do.
-var verdictPattern = regexp.MustCompile(`(?i)^\s*(y|yes|n|no)\s+([a-km-z]{5})\s*$`)
+// verdictPattern matches an approval answer such as "yes 42".
+var verdictPattern = regexp.MustCompile(`(?i)^\s*(y|yes|n|no)\s*(\d{2,3})\s*$`)
 
 // Core is the daemon's logic.
 type Core struct {
@@ -116,6 +115,7 @@ type Core struct {
 	conns    map[string]*conn
 	subs     map[string]*subscriber
 	pending  map[string]*pending
+	closed   map[string]time.Time
 	status   []string
 	statusOn bool
 	homeStop context.CancelFunc
@@ -151,6 +151,7 @@ func New(cfg Config) *Core {
 		conns:   map[string]*conn{},
 		subs:    map[string]*subscriber{},
 		pending: map[string]*pending{},
+		closed:  map[string]time.Time{},
 		agents:  map[string]*chatAgent{},
 	}
 }

@@ -186,7 +186,7 @@ func (h *harness) expect(want string) sentText {
 	}
 }
 
-var codePattern = regexp.MustCompile(`yes ([a-z]{5})`)
+var codePattern = regexp.MustCompile(`yes (\d{2,3})`)
 
 func (h *harness) expectCode(want string) string {
 	h.t.Helper()
@@ -217,8 +217,8 @@ func TestWelcomeCommandsAndStatus(t *testing.T) {
 	h.expect("/route <chat> <session>")
 	h.receive(self, "/nope", true)
 	h.expect("unknown command /nope")
-	h.receive(self, "yes abcde", true)
-	h.expect("Nothing waits for the code abcde")
+	h.receive(self, "Yes 77", true)
+	h.expect("Nothing waits for the code 77")
 	h.core.OnChatName("g@g.us", "Team <> Sam")
 	h.core.OnChatName("x@g.us", "")
 	h.receive("g@g.us", "hello", false)
@@ -240,8 +240,10 @@ func TestWelcomeCommandsAndStatus(t *testing.T) {
 			t.Errorf("own sent message role = %s", m.Role)
 		}
 	}
-	if got := isCommand("no abcde"); !got {
-		t.Error("isCommand(no abcde) = false")
+	for text, want := range map[string]bool{"no 12": true, "y12": true, " YES 99 ": true, "no abcde": false, "yes 1": false, "no thanks": false} {
+		if got := isCommand(text); got != want {
+			t.Errorf("isCommand(%q) = %v", text, got)
+		}
 	}
 }
 
@@ -602,8 +604,8 @@ func TestApproveAndRelay(t *testing.T) {
 	go func() { _ = h.core.Subscribe(ctx, token, "channel", p) }()
 	time.Sleep(50 * time.Millisecond)
 	h.core.RelayPermission(Caller{Session: name}, "qwert", "Write", "write a file", "{}")
-	h.expect("dev wants to use Write")
-	h.receive(self, "yes qwert", true)
+	code = h.expectCode("dev wants to use Write")
+	h.receive(self, "yes "+code, true)
 	select {
 	case v := <-p.verdicts:
 		if v != "qwert=true" {
@@ -613,8 +615,8 @@ func TestApproveAndRelay(t *testing.T) {
 		t.Fatal("no verdict")
 	}
 	h.core.RelayPermission(Caller{Session: "gone"}, "asdfg", "Write", "", "")
-	h.expect("gone wants to use Write")
-	h.receive(self, "no asdfg", true)
+	code = h.expectCode("gone wants to use Write")
+	h.receive(self, "no"+code, true)
 	h.expect("gone is offline")
 	if clip("  abcdef ", 3) != "abc…" {
 		t.Error("clip is wrong")

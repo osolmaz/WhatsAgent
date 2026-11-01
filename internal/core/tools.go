@@ -234,7 +234,7 @@ func (c *Core) gate(ctx context.Context, caller Caller, jid, what, detail string
 		return act(ctx)
 	case model.Ask:
 		chat, _ := c.st.Chat(ctx, jid)
-		code := c.ask("", fmt.Sprintf("%s wants to %s %s:\n%s", caller.Session, what, chat.Label(), detail),
+		code := c.ask(fmt.Sprintf("%s wants to %s %s:\n%s", caller.Session, what, chat.Label(), detail),
 			func(ctx context.Context, allow bool) string {
 				return c.decided(ctx, allow, act)
 			})
@@ -345,7 +345,7 @@ func (c *Core) RouteHere(ctx context.Context, caller Caller, ref, prefix, mode s
 		return c.setRoute(ctx, route, m)
 	}
 	chat, _ := c.st.Chat(ctx, jid)
-	code := c.ask("", fmt.Sprintf("%s wants the chat %s routed to it in the %s mode.", caller.Session, chat.Label(), m),
+	code := c.ask(fmt.Sprintf("%s wants the chat %s routed to it in the %s mode.", caller.Session, chat.Label(), m),
 		func(ctx context.Context, allow bool) string {
 			if !allow {
 				return "Not routed."

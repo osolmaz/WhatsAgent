@@ -97,6 +97,10 @@ const whatsAgentTools = "mcp__whatsagent"
 
 // Claude runs an agent as a headless Claude Code process in stream-json mode, the protocol that
 // the Claude Agent SDKs use, and continues the same session after every restart.
+//
+// A session ID is stored only once Claude Code started a conversation under it, so a restart
+// never resumes a session that does not exist. When a resume fails all the same, the agent starts
+// a fresh session and sends the messages of the failed process again.
 type Claude struct {
 	opts ClaudeOptions
 	host core.AgentHost
@@ -106,6 +110,11 @@ type Claude struct {
 	stdin     io.WriteCloser
 	sessionID string
 	resume    bool
+	saved     bool
+	// live is true once the current process started its conversation; until then, pending
+	// holds the lines written to it.
+	live    bool
+	pending [][]byte
 }
 
 // NewClaude returns home on Claude Code. The process starts with the first message.
@@ -122,12 +131,10 @@ func NewClaude(ctx context.Context, opts ClaudeOptions, host core.AgentHost) (*C
 	if err := os.MkdirAll(opts.Dir, 0o700); err != nil {
 		return nil, err
 	}
-	h := &Claude{opts: opts, host: host, ctx: ctx, sessionID: host.SessionID, resume: host.SessionID != ""}
+	h := &Claude{opts: opts, host: host, ctx: ctx, sessionID: host.SessionID, resume: host.SessionID != "",
+		saved: host.SessionID != ""}
 	if h.sessionID == "" {
 		h.sessionID = newUUID()
-		if err := host.SaveSessionID(h.sessionID); err != nil {
-			return nil, err
-		}
 	}
 	return h, nil
 }
@@ -163,6 +170,13 @@ func (h *Claude) write(text string) error {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.send(line)
+}
+
+// send writes one stream-json line to the process, and starts the process when none runs. The
+// caller holds h.mu.
+func (h *Claude) send(line []byte) error {
+	var err error
 	for attempt := 0; attempt < 2; attempt++ {
 		if h.stdin == nil {
 			if err = h.start(); err != nil {
@@ -170,6 +184,9 @@ func (h *Claude) write(text string) error {
 			}
 		}
 		if _, err = h.stdin.Write(append(line, '\n')); err == nil {
+			if !h.live {
+				h.pending = append(h.pending, line)
+			}
 			return nil
 		}
 		h.stdin = nil
@@ -212,21 +229,24 @@ func (h *Claude) start() error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start %s: %w", h.session(), err)
 	}
-	h.stdin = stdin
-	go h.read(cmd, stdin, stdout)
+	h.stdin, h.live, h.pending = stdin, false, nil
+	go h.read(cmd, stdin, stdout, h.resume)
 	return nil
 }
 
-// streamLine is the part of a stream-json output line that home reads.
+// streamLine is the part of a stream-json output line that the agent reads.
 type streamLine struct {
-	Type      string `json:"type"`
-	Subtype   string `json:"subtype"`
-	Result    string `json:"result"`
-	SessionID string `json:"session_id"`
-	IsError   bool   `json:"is_error"`
+	Type      string   `json:"type"`
+	Subtype   string   `json:"subtype"`
+	Result    string   `json:"result"`
+	SessionID string   `json:"session_id"`
+	IsError   bool     `json:"is_error"`
+	Errors    []string `json:"errors"`
 }
 
-func (h *Claude) read(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader) {
+// read handles a process's output until it ends. resuming says whether the process resumed a
+// stored session.
+func (h *Claude) read(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, resuming bool) {
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	started := false
@@ -235,23 +255,52 @@ func (h *Claude) read(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader) {
 		if json.Unmarshal(scanner.Bytes(), &line) != nil {
 			continue
 		}
-		started = started || line.Type == "system"
-		h.onLine(line)
+		if line.Type == "system" && !started {
+			started = true
+			h.goLive()
+		}
+		// Before its conversation starts, an error from a resumed process means that the session
+		// cannot be resumed, which ended below handles without bothering the owner.
+		if started || !resuming {
+			h.onLine(line)
+		}
 	}
 	err := cmd.Wait()
+	h.opts.Log.Info("agent process ended", "session", h.session(), "err", err, "started", started)
+	h.ended(stdin, started)
+}
+
+// goLive records that the current process started its conversation, and stores its session ID.
+func (h *Claude) goLive() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.live, h.pending = true, nil
+	if !h.saved {
+		h.saved = h.host.SaveSessionID(h.sessionID) == nil
+	}
+}
+
+// ended handles the end of a process. When a resumed process ended before its conversation
+// started, its session cannot be resumed: the agent starts a fresh session and sends that
+// process's messages to it.
+func (h *Claude) ended(stdin io.WriteCloser, started bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.stdin == stdin {
 		h.stdin = nil
 	}
-	h.opts.Log.Info("agent process ended", "session", h.session(), "err", err, "started", started)
-	switch {
-	case started:
-		h.resume = true
-	case h.resume:
-		// claude exits before its first line when it cannot resume the session, so start fresh.
-		h.resume, h.sessionID = false, newUUID()
-		_ = h.host.SaveSessionID(h.sessionID)
+	if started || !h.resume {
+		h.resume = h.resume || started
+		return
+	}
+	lines := h.pending
+	h.resume, h.saved, h.sessionID, h.pending = false, false, newUUID(), nil
+	h.opts.Log.Warn("could not resume the agent's session; starting a fresh one", "session", h.session())
+	for _, line := range lines {
+		if err := h.send(line); err != nil {
+			h.host.Fail(fmt.Sprintf("%s failed: %v", h.session(), err))
+			return
+		}
 	}
 }
 
@@ -260,7 +309,11 @@ func (h *Claude) onLine(line streamLine) {
 		return
 	}
 	if line.IsError {
-		h.host.Fail(fmt.Sprintf("%s failed: %s", h.session(), line.Result))
+		reason := line.Result
+		if reason == "" {
+			reason = strings.Join(line.Errors, "; ")
+		}
+		h.host.Fail(fmt.Sprintf("%s failed: %s", h.session(), reason))
 		return
 	}
 	h.host.Post(line.Result)

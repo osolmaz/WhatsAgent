@@ -144,8 +144,7 @@ func TestSessionStreamToolsAndPermission(t *testing.T) {
 	if err := c.Permission(ctx, api.PermissionRequest{Token: token, RequestID: "qwert", ToolName: "Bash", Description: "list"}); err != nil {
 		t.Fatal(err)
 	}
-	d.Expect("dev wants to use Bash")
-	d.Receive(testkit.SelfChat, "yes qwert", true)
+	d.Receive(testkit.SelfChat, "yes "+codeOf(t, d.Expect("dev wants to use Bash")), true)
 	if f := next(t, frames, "verdict"); f.RequestID != "qwert" || !f.Allow {
 		t.Errorf("verdict frame = %+v", f)
 	}
@@ -180,11 +179,12 @@ func TestSessionStreamToolsAndPermission(t *testing.T) {
 
 func codeOf(t *testing.T, s testkit.Sent) string {
 	t.Helper()
-	i := strings.Index(s.Text, `"yes `)
-	if i < 0 {
+	_, rest, ok := strings.Cut(s.Text, `"yes `)
+	code, _, closed := strings.Cut(rest, `"`)
+	if !ok || !closed {
 		t.Fatalf("no code in %q", s.Text)
 	}
-	return s.Text[i+5 : i+10]
+	return code
 }
 
 func TestToolsOnlySessionAndWatch(t *testing.T) {

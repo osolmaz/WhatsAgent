@@ -96,7 +96,7 @@ Plain text goes to home, and home replies in the self-chat.
 
 Status lines come from WhatsAgent itself. The first one is a welcome message when the account links. After that, WhatsAgent posts a line whenever its state changes, for example when it starts or when a session with a route goes online or offline. Every Claude Code session loads the WhatsAgent MCP server, so sessions without a route get no status line. Lines that arrive within a few seconds are merged into one message so the chat stays readable. WhatsAgent's lines start with ⚙️ and home's replies with 🏠, and a session's messages carry the agent prefix described under "Routes".
 
-Approval prompts are the fourth kind. When a session needs approval for a tool call, its adapter can relay the prompt to the self-chat. The owner then answers with `yes abcde` or `no abcde`. The "Adapters" section says how each harness supports this.
+Approval prompts are the fourth kind. When a session needs approval for a tool call, its adapter can relay the prompt to the self-chat. The owner then answers with `yes 42` or `no 42`. Each open question gets a two-digit code that no other open question uses, and a code rests for an hour after its question closes, so a late answer cannot approve a newer question. A relayed prompt keeps the harness's own request ID inside WhatsAgent. The "Adapters" section says how each harness supports this.
 
 WhatsAgent accepts commands only from the owner and only in the self-chat. The owner's messages and WhatsAgent's own messages both appear there as sent by the owner's account, so WhatsAgent records the ID of every message it sends and never treats one of them as a command or a prompt.
 

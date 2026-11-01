@@ -71,7 +71,7 @@ func (c *Core) Run(ctx context.Context, caller Caller, line string) (string, err
 			continue
 		}
 		if cmd.mutates && !caller.owner {
-			code := c.ask("", fmt.Sprintf("%s wants to run: /%s %s", caller.Session, cmd.name, args),
+			code := c.ask(fmt.Sprintf("%s wants to run: /%s %s", caller.Session, cmd.name, args),
 				func(ctx context.Context, allow bool) string {
 					return c.runApproved(ctx, cmd, args, allow)
 				})

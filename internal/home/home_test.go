@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -23,8 +24,15 @@ func TestMain(m *testing.M) {
 	case "echo":
 		fakeClaude()
 		return
-	case "fail":
-		os.Exit(1)
+	case "noresume":
+		// Like claude, a resume of an unknown session prints an error result and exits.
+		if slices.Contains(os.Args, "--resume") {
+			fmt.Println(`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"",` +
+				`"errors":["No conversation found with session ID: old-session"]}`)
+			os.Exit(1)
+		}
+		fakeClaude()
+		return
 	}
 	os.Exit(m.Run())
 }
@@ -127,8 +135,8 @@ func TestClaudeHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h.saved() == "" {
-		t.Fatal("a fresh home saved no session ID")
+	if h.saved() != "" {
+		t.Fatal("home saved the ID of a session that has no conversation yet")
 	}
 	if err := home.Push(ctx, nil); err != nil {
 		t.Fatal(err)
@@ -137,6 +145,9 @@ func TestClaudeHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.expect(t, "echo: [2026-11-01 01:00] The owner wrote in the self-chat: hello home")
+	if h.saved() == "" {
+		t.Fatal("home saved no session ID after its conversation started")
+	}
 	_ = home.Push(ctx, []model.Event{event(selfChat, "please fail", true)})
 	h.expect(t, "home failed: echo:")
 	args, _ := os.ReadFile(argsFile)
@@ -167,20 +178,24 @@ func TestClaudeHomeResumesAndRecovers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// A process that fails before its first line, on resume, makes home start a fresh session.
-	t.Setenv("FAKE_CLAUDE", "fail")
+	// A session that Claude Code cannot resume makes home start a fresh one and send the same
+	// message again, without an error for the owner.
+	t.Setenv("FAKE_CLAUDE", "noresume")
 	h := newHost("old-session")
 	home, err := NewClaude(ctx, ClaudeOptions{Bin: bin, Dir: t.TempDir(), SelfChat: selfChat}, h.homeHost())
 	if err != nil {
 		t.Fatal(err)
 	}
 	_ = home.Push(ctx, []model.Event{event(selfChat, "one", true)})
+	if got := <-h.posts; !strings.Contains(got, "echo:") || !strings.HasSuffix(got, "one") {
+		t.Fatalf("after a failed resume home posted %q", got)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for h.saved() == "old-session" && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}
-	if h.saved() == "old-session" {
-		t.Fatal("home kept a session it could not resume")
+	if h.saved() == "old-session" || h.saved() == "" {
+		t.Fatalf("home kept session %q", h.saved())
 	}
 
 	t.Setenv("FAKE_CLAUDE", "echo")

@@ -172,8 +172,10 @@ func TestChannelSession(t *testing.T) {
 	}
 
 	c.send(`{"jsonrpc":"2.0","method":"notifications/claude/channel/permission_request","params":{"request_id":"qwert","tool_name":"Bash","description":"list files","input_preview":"{\"command\":\"ls\"}"}}`)
-	d.Expect("dev wants to use Bash: list files")
-	d.Receive(testkit.SelfChat, "no qwert", true)
+	prompt := d.Expect("dev wants to use Bash: list files")
+	_, rest, _ := strings.Cut(prompt.Text, `"no `)
+	code, _, _ := strings.Cut(rest, `"`)
+	d.Receive(testkit.SelfChat, "no "+code, true)
 	verdict := c.notification("notifications/claude/channel/permission")
 	if p := verdict["params"].(map[string]any); p["request_id"] != "qwert" || p["behavior"] != "deny" {
 		t.Errorf("verdict = %v", verdict)
