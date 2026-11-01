@@ -209,8 +209,13 @@ func TestSetupLaunchAndService(t *testing.T) {
 	if _, err := runCtx(context.Background(), env, "", "codex", "resume"); err != nil {
 		t.Error(err)
 	}
-	if out, err := runCtx(context.Background(), env, "", "service", "install"); err != nil || !strings.Contains(out, "whatsagent.service") {
+	out, err := runCtx(context.Background(), env, "", "service", "install", "--web-host", "100.1.2.3", "--web-name", "box.ts.net")
+	if err != nil || !strings.Contains(out, "whatsagent.service") {
 		t.Errorf("service install = %q, %v", out, err)
+	}
+	unitPath := strings.TrimSpace(strings.TrimPrefix(out, "Installed and started"))
+	if unit, _ := os.ReadFile(unitPath); !strings.Contains(string(unit), "ExecStart=/opt/whatsagent daemon --web-host 100.1.2.3 --web-name box.ts.net\n") {
+		t.Errorf("unit = %s", unit)
 	}
 	if _, err := runCtx(context.Background(), env, "", "service", "uninstall"); err != nil {
 		t.Error(err)

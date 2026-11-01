@@ -35,6 +35,10 @@ type Options struct {
 	ClaudeBin string
 	// Bin is the whatsagent executable, which the chat agents run as their only MCP server.
 	Bin string
+	// WebHost is the address the browser page listens on; "" means loopback only.
+	WebHost string
+	// WebNames are host names the page may be opened under, such as a Tailscale MagicDNS name.
+	WebNames []string
 	// CodexSocket is the Codex app-server daemon's control socket.
 	CodexSocket string
 	// CodexEvery is how often the Codex adapter looks for threads.
@@ -65,11 +69,11 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	terminals := term.NewHost()
-	page, err := web.New(terminals, settingStore{st})
+	page, err := web.New(terminals, settingStore{st}, opts.WebNames...)
 	if err != nil {
 		return err
 	}
-	pageURL, err := page.Listen(ctx)
+	pageURL, err := page.Listen(ctx, opts.WebHost)
 	if err != nil {
 		return err
 	}

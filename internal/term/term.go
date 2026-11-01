@@ -27,6 +27,8 @@ const (
 	answerWindow = 8 * 1024
 	// answerDelay is how long an answer waits after its question appears.
 	answerDelay = 500 * time.Millisecond
+	// retryRead is how long reading pauses after a failed read while the process runs.
+	retryRead   = 10 * time.Millisecond
 	defaultCols = 120
 	defaultRows = 40
 )
@@ -133,17 +135,12 @@ func (h *Host) changed() {
 
 // run copies the session's output until its process ends.
 func (h *Host) run(s *session) {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := s.pty.Read(buf)
-		if n > 0 {
-			s.write(buf[:n])
-		}
-		if err != nil {
-			break
-		}
-	}
-	_ = s.cmd.Wait()
+	exited := make(chan struct{})
+	go func() {
+		_ = s.cmd.Wait()
+		close(exited)
+	}()
+	s.copyOutput(exited)
 	_ = s.pty.Close()
 	h.mu.Lock()
 	if h.sessions[s.spec.Name] == s {
@@ -153,6 +150,28 @@ func (h *Host) run(s *session) {
 	s.end()
 	close(s.ended)
 	h.changed()
+}
+
+// copyOutput reads the session's output until a read fails after the process exited. Linux
+// reports an I/O error on the terminal's master side while no process holds the other side
+// open, which also happens for a moment while a process starts, so a failed read before the
+// exit only pauses the reading. After the exit, reads return the remaining output first.
+func (s *session) copyOutput(exited <-chan struct{}) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := s.pty.Read(buf)
+		if n > 0 {
+			s.write(buf[:n])
+		}
+		if err == nil {
+			continue
+		}
+		select {
+		case <-exited:
+			return
+		case <-time.After(retryRead):
+		}
+	}
 }
 
 // write records output, answers startup questions, and passes the output to the viewers.

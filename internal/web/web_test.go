@@ -143,8 +143,12 @@ func TestGuards(t *testing.T) {
 	if _, resp, err := dial(t, ts, "/api/events"+tok, false); err == nil || resp.StatusCode != http.StatusForbidden {
 		t.Errorf("socket without an origin = %v", err)
 	}
-	if !loopback("localhost:80") || !loopback("[::1]:9") || !loopback("127.0.0.1") || loopback("example.com:80") {
-		t.Error("loopback is wrong")
+	if !s.allowedHost("localhost:80") || !s.allowedHost("[::1]:9") || !s.allowedHost("127.0.0.1") || s.allowedHost("example.com:80") {
+		t.Error("allowedHost is wrong for loopback names")
+	}
+	named, _ := New(term.NewHost(), &memory{}, "box.tailnet.ts.net")
+	if !named.allowedHost("box.tailnet.ts.net:8080") || named.allowedHost("other.tailnet.ts.net") {
+		t.Error("allowedHost is wrong for a page name")
 	}
 }
 
@@ -218,13 +222,27 @@ func TestListenAndHelpers(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	address, err := s.Listen(ctx)
+	address, err := s.Listen(ctx, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	u, err := url.Parse(address)
 	if err != nil || u.Query().Get("token") != s.token || !strings.HasPrefix(u.Host, "127.0.0.1:") {
 		t.Fatalf("Listen = %q, %v", address, err)
+	}
+	// With a name, the address uses it, and a request under that name is served.
+	named, _ := New(term.NewHost(), &memory{}, "localhost")
+	address, err = named.Listen(ctx, "127.0.0.1")
+	if err != nil || !strings.HasPrefix(address, "http://localhost:") {
+		t.Fatalf("Listen with a name = %q, %v", address, err)
+	}
+	if resp, err := http.Get(address); err != nil || resp.StatusCode != http.StatusOK {
+		t.Errorf("page under its name = %v, %v", resp, err)
+	} else {
+		resp.Body.Close()
+	}
+	if _, err := named.Listen(ctx, "203.0.113.1"); err == nil {
+		t.Error("Listen on an address of another machine gave no error")
 	}
 	resp, err := http.Get(address)
 	if err != nil || resp.StatusCode != http.StatusOK {

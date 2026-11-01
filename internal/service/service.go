@@ -21,6 +21,8 @@ type Spec struct {
 	Path string
 	// LogFile is where launchd writes the daemon's output.
 	LogFile string
+	// Args are extra arguments for `whatsagent daemon`.
+	Args []string
 }
 
 // Runner runs a command such as systemctl.
@@ -34,14 +36,23 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-ExecStart=%s daemon
+ExecStart=%s
 Restart=on-failure
 RestartSec=5
 Environment=PATH=%s
 
 [Install]
 WantedBy=default.target
-`, quote(s.Bin), s.Path)
+`, strings.Join(command(s, quote), " "), s.Path)
+}
+
+// command is the daemon's command line, with each part passed through enc.
+func command(s Spec, enc func(string) string) []string {
+	parts := []string{enc(s.Bin), enc("daemon")}
+	for _, arg := range s.Args {
+		parts = append(parts, enc(arg))
+	}
+	return parts
 }
 
 // quote quotes a path for systemd when it has spaces.
@@ -60,7 +71,7 @@ func Plist(s Spec) string {
 <plist version="1.0">
 <dict>
   <key>Label</key><string>%s</string>
-  <key>ProgramArguments</key><array><string>%s</string><string>daemon</string></array>
+  <key>ProgramArguments</key><array>%s</array>
   <key>EnvironmentVariables</key><dict><key>PATH</key><string>%s</string></dict>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
@@ -68,7 +79,8 @@ func Plist(s Spec) string {
   <key>StandardErrorPath</key><string>%s</string>
 </dict>
 </plist>
-`, Label, e(s.Bin), e(s.Path), e(s.LogFile), e(s.LogFile))
+`, Label, strings.Join(command(s, func(a string) string { return "<string>" + e(a) + "</string>" }), ""),
+		e(s.Path), e(s.LogFile), e(s.LogFile))
 }
 
 // File returns where the service file goes on goos.

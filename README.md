@@ -57,7 +57,7 @@ An agent answers on its own only in a chat that just wrote to it. Anything else,
 
 ### Watching the agents
 
-Home and the chat agents run as normal Claude Code sessions in terminals that the daemon keeps. `whatsagent web` opens them in your browser: the sessions on the left, and the selected agent's terminal on the right, where you can watch it work and type into it. Closing the tab leaves them running.
+Home and the chat agents run as normal Claude Code sessions in terminals that the daemon keeps. `whatsagent web` opens them in your browser: the sessions on the left, and the selected agent's terminal on the right, where you can watch it work and type into it. Closing the tab leaves them running. The page listens only on this machine by default; to open it from another device on your Tailscale network, install the service with `whatsagent service install --web-host <tailscale address> --web-name <machine>.<tailnet>.ts.net`, and `whatsagent web --print` then gives you the link. The link holds an access token, so keep it private.
 
 ### Your own sessions
 

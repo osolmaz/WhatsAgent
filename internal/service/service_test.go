@@ -28,6 +28,13 @@ func TestUnitAndPlist(t *testing.T) {
 			t.Errorf("unit misses %q", want)
 		}
 	}
+	if got := Unit(Spec{Bin: "/bin/w", Args: []string{"--web-host", "100.1.2.3"}}); !strings.Contains(got, "ExecStart=/bin/w daemon --web-host 100.1.2.3\n") {
+		t.Errorf("unit with arguments = %s", got)
+	}
+	if got := Plist(Spec{Bin: "/bin/w", Args: []string{"--web-name", "a&b"}}); !strings.Contains(got,
+		"<array><string>/bin/w</string><string>daemon</string><string>--web-name</string><string>a&amp;b</string></array>") {
+		t.Errorf("plist with arguments = %s", got)
+	}
 	if !strings.Contains(Unit(Spec{Bin: "/bin/w"}), "ExecStart=/bin/w daemon") {
 		t.Error("plain path was quoted")
 	}

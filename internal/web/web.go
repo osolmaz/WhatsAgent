@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,6 +73,9 @@ var fontSizes = []int{11, 12, 13, 14, 15, 16, 18, 20}
 type Server struct {
 	sessions Sessions
 	store    Store
+	// names are host names besides the loopback names that the page may be opened under, such
+	// as a Tailscale MagicDNS name.
+	names    []string
 	token    string
 	themes   json.RawMessage
 	choices  []themeChoice
@@ -95,13 +99,14 @@ func (p *page) send(v any) {
 	_ = p.conn.WriteJSON(v)
 }
 
-// New returns a server for sessions, with settings kept in store.
-func New(sessions Sessions, store Store) (*Server, error) {
+// New returns a server for sessions, with settings kept in store. names are host names besides
+// the loopback names that the page may be opened under.
+func New(sessions Sessions, store Store, names ...string) (*Server, error) {
 	themes, err := ui.ReadFile("ui/themes.json")
 	if err != nil {
 		return nil, err
 	}
-	s := &Server{sessions: sessions, store: store, token: rand.Text(), themes: themes, pages: map[*page]bool{}}
+	s := &Server{sessions: sessions, store: store, names: names, token: rand.Text(), themes: themes, pages: map[*page]bool{}}
 	if err := json.Unmarshal(themes, &s.choices); err != nil || len(s.choices) == 0 {
 		return nil, fmt.Errorf("read the page themes: %w", err)
 	}
@@ -112,11 +117,21 @@ func New(sessions Sessions, store Store) (*Server, error) {
 	return s, nil
 }
 
-// Listen serves the page on a free loopback port until ctx ends, and returns its address.
-func (s *Server) Listen(ctx context.Context) (string, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+// Listen serves the page on a free port of host, or of loopback when host is "", until ctx ends,
+// and returns its address. A host other than loopback also becomes one of the page's names.
+func (s *Server) Listen(ctx context.Context, host string) (string, error) {
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	listener, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
 		return "", err
+	}
+	s.names = append(s.names, host)
+	address := listener.Addr().String()
+	if len(s.names) > 1 {
+		_, port, _ := net.SplitHostPort(address)
+		address = net.JoinHostPort(s.names[0], port)
 	}
 	server := &http.Server{Handler: s, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = server.Serve(listener) }()
@@ -125,7 +140,7 @@ func (s *Server) Listen(ctx context.Context) (string, error) {
 		<-ctx.Done()
 		_ = server.Close()
 	}()
-	return fmt.Sprintf("http://%s/?token=%s", listener.Addr(), s.token), nil
+	return fmt.Sprintf("http://%s/?token=%s", address, s.token), nil
 }
 
 // watch sends the session list to the open pages whenever it changes.
@@ -212,7 +227,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) error {
-	if !loopback(r.Host) {
+	if !s.allowedHost(r.Host) {
 		return httpError{http.StatusForbidden, "host not allowed"}
 	}
 	if !strings.HasPrefix(r.URL.Path, "/api/") {
@@ -475,13 +490,14 @@ func (s *Server) asset(w http.ResponseWriter, r *http.Request) error {
 	return err
 }
 
-// loopback reports whether a Host header names this machine, which also blocks DNS rebinding.
-func loopback(host string) bool {
+// allowedHost reports whether a Host header names this machine by a loopback name or by one of
+// the page's names, which also blocks DNS rebinding.
+func (s *Server) allowedHost(host string) bool {
 	name, _, err := net.SplitHostPort(host)
 	if err != nil {
 		name = host
 	}
-	return name == "127.0.0.1" || name == "localhost" || name == "::1"
+	return name == "127.0.0.1" || name == "localhost" || name == "::1" || slices.Contains(s.names, name)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

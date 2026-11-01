@@ -42,8 +42,35 @@ func codexHome(env paths.Env) string {
 	return filepath.Join(env.Home, ".codex")
 }
 
+// webFlags are the options of the daemon's browser page, which `service install` passes on to
+// the daemon.
+type webFlags struct {
+	host  string
+	names []string
+}
+
+func (f *webFlags) add(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&f.host, "web-host", "",
+		"address the browser page listens on, such as a Tailscale address (default: loopback only)")
+	cmd.Flags().StringArrayVar(&f.names, "web-name", nil,
+		"host name the browser page may be opened under, such as a Tailscale MagicDNS name (repeatable)")
+}
+
+// args are the flags as daemon arguments.
+func (f webFlags) args() []string {
+	var args []string
+	if f.host != "" {
+		args = append(args, "--web-host", f.host)
+	}
+	for _, name := range f.names {
+		args = append(args, "--web-name", name)
+	}
+	return args
+}
+
 func newDaemon(env paths.Env) *cobra.Command {
 	var verbose bool
+	var web webFlags
 	cmd := &cobra.Command{
 		Use:   "daemon",
 		Short: "Run the WhatsAgent daemon in the foreground",
@@ -66,31 +93,39 @@ func newDaemon(env paths.Env) *cobra.Command {
 			return daemon.Run(cmd.Context(), daemon.Options{
 				Dirs: dirs, Log: log, Version: version, ClaudeBin: claude, Bin: self,
 				CodexSocket: daemon.CodexSocket(codexHome(env)), CodexEvery: 20 * time.Second,
+				WebHost: web.host, WebNames: web.names,
 			})
 		},
 	}
 	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "log debug details")
+	web.add(cmd)
 	return cmd
 }
 
 func newService(env paths.Env) *cobra.Command {
-	cmd := &cobra.Command{Use: "service", Short: "Install or remove the daemon as a user service"}
-	cmd.AddCommand(&cobra.Command{
+	var web webFlags
+	install := &cobra.Command{
 		Use:   "install",
 		Short: "Install the daemon as a systemd user service or launchd LaunchAgent and start it",
-		Args:  cobra.NoArgs,
+		Long: "Install the daemon as a systemd user service or launchd LaunchAgent and start it. --web-host and\n" +
+			"--web-name go to the daemon, for example to open the browser page over Tailscale.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, spec, err := serviceSpec(env)
 			if err != nil {
 				return err
 			}
+			spec.Args = web.args()
 			if err := service.Install(env.GOOS, path, spec, os.Getuid(), runCommand); err != nil {
 				return err
 			}
 			_, err = fmt.Fprintln(cmd.OutOrStdout(), "Installed and started", path)
 			return err
 		},
-	}, &cobra.Command{
+	}
+	web.add(install)
+	cmd := &cobra.Command{Use: "service", Short: "Install or remove the daemon as a user service"}
+	cmd.AddCommand(install, &cobra.Command{
 		Use:   "uninstall",
 		Short: "Stop the daemon service and remove it",
 		Args:  cobra.NoArgs,
