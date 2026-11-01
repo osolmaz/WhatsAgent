@@ -154,6 +154,8 @@ func TestChannelSession(t *testing.T) {
 		{ChatName: "Sam", Message: model.Message{SenderName: "Sam"}}:                      "Sam: ",
 		{Message: model.Message{Sender: "15551234567@s.whatsapp.net"}}:                    "15551234567: ",
 		{ChatName: "Team", Message: model.Message{Sender: "200@lid", SenderName: "Maya"}}: "[Team] Maya: ",
+		{ChatName: "Sam Lee", Message: model.Message{Chat: "1@s.whatsapp.net", Sender: "1@s.whatsapp.net",
+			SenderName: "Sam", FromMe: true}}: "[self-chat] Sam: ",
 	} {
 		if got := speaker(*e); got != want {
 			t.Errorf("speaker(%+v) = %q, want %q", *e, got, want)
