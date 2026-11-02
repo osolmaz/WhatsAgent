@@ -3,8 +3,11 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -96,8 +99,32 @@ func TestDiskHoldsOnlyKeptChats(t *testing.T) {
 	}
 }
 
+// history leaves old copies of rows in the free space of the database at path, as an installation
+// from before secure delete has them: a connection without secure delete writes rows, rewrites
+// them, which moves them, and deletes them.
+func history(t *testing.T, path string) {
+	t.Helper()
+	raw, err := sql.Open("sqlite", "file:"+path+"?_pragma=secure_delete(0)&_pragma=busy_timeout(10000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	for i := 0; i < 40; i++ {
+		if _, err := raw.Exec("INSERT INTO messages (chat, id, time, text) VALUES ('old@g.us', ?, 1, ?)",
+			fmt.Sprint("h", i), strings.Repeat("HISTORY-MARKER ", 30)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, query := range []string{"UPDATE messages SET text = text || text WHERE chat = 'old@g.us'",
+		"DELETE FROM messages WHERE chat = 'old@g.us'"} {
+		if _, err := raw.Exec(query); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 // TestUnkeepAndPurgeErase checks that the text of a chat that stops being kept is gone from the
-// files, not only from the tables.
+// files, not only from the tables, together with old copies that an earlier installation left.
 func TestUnkeepAndPurgeErase(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "whatsagent.db")
@@ -112,7 +139,8 @@ func TestUnkeepAndPurgeErase(t *testing.T) {
 	_, _ = s.Apply(ctx, model.Update{Kind: model.New, Message: msg("a@g.us", "a1", "UNKEPT-MARKER", 100)})
 	_, _ = s.Apply(ctx, model.Update{Kind: model.New, Message: msg("b@g.us", "b1", "PURGED-MARKER", 100)})
 	_ = s.RecordSent(ctx, "a-sent", "a@g.us", time.Now())
-	if found := onDisk(t, path, "UNKEPT-MARKER", "PURGED-MARKER"); len(found) != 2 {
+	history(t, path)
+	if found := onDisk(t, path, "UNKEPT-MARKER", "PURGED-MARKER", "HISTORY-MARKER"); len(found) < 3 {
 		t.Fatalf("before = %v", found)
 	}
 
@@ -133,7 +161,7 @@ func TestUnkeepAndPurgeErase(t *testing.T) {
 	if n, err := s.Purge(ctx); err != nil || n != 1 {
 		t.Fatalf("Purge = %d, %v", n, err)
 	}
-	if found := onDisk(t, path, "UNKEPT-MARKER", "PURGED-MARKER"); len(found) > 0 {
+	if found := onDisk(t, path, "UNKEPT-MARKER", "PURGED-MARKER", "HISTORY-MARKER"); len(found) > 0 {
 		t.Errorf("after Unkeep and Purge: %v", found)
 	}
 	if msgs, _ := s.Messages(ctx, "b@g.us", 0); len(msgs) != 0 {
