@@ -21,10 +21,17 @@ type Home struct {
 	last string
 }
 
-// reviewed adds Codex's auto review to thread parameters when the host turns on auto approval,
-// so a subagent decides home's approval requests and only the ones it will not decide reach the
-// owner.
-func reviewed(host core.AgentHost, params map[string]any) map[string]any {
+// threadParams completes the parameters of a thread that the adapter starts or resumes. The
+// WhatsAgent MCP tools run without Codex asking, because WhatsAgent checks each call itself and an
+// adapter's thread has no one to answer Codex's question. When the host turns on auto approval,
+// Codex's auto review decides the other approval requests, and only the ones it will not decide
+// reach the owner.
+func (a *Adapter) threadParams(host core.AgentHost, params map[string]any) map[string]any {
+	config := map[string]any{}
+	for _, tool := range a.opts.Tools {
+		config["mcp_servers.whatsagent.tools."+tool+".approval_mode"] = "approve"
+	}
+	params["config"] = config
 	if host.Auto {
 		params["approvalsReviewer"] = "auto_review"
 	}
@@ -40,10 +47,10 @@ func (a *Adapter) NewHome(ctx context.Context, host core.AgentHost, dir, instruc
 	}
 	var err error
 	if host.SessionID != "" {
-		err = a.call(ctx, "thread/resume", reviewed(host, map[string]any{"threadId": host.SessionID}), &started)
+		err = a.call(ctx, "thread/resume", a.threadParams(host, map[string]any{"threadId": host.SessionID}), &started)
 	}
 	if host.SessionID == "" || err != nil {
-		params := reviewed(host, map[string]any{"cwd": dir, "developerInstructions": instructions})
+		params := a.threadParams(host, map[string]any{"cwd": dir, "developerInstructions": instructions})
 		if err = a.call(ctx, "thread/start", params, &started); err != nil {
 			return nil, err
 		}

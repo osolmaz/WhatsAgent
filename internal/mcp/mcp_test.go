@@ -208,6 +208,24 @@ func TestToolsOnlyWithoutDaemon(t *testing.T) {
 	}
 }
 
+// TestToolNames checks the exported tool names, and that exactly the tools that change nothing
+// carry the read-only mark, because a harness such as Codex runs those without asking.
+func TestToolNames(t *testing.T) {
+	names := ToolNames()
+	if len(names) != len(toolList) || names[0] != "read_chat" {
+		t.Fatalf("ToolNames = %v", names)
+	}
+	var marked []string
+	for _, tool := range toolList {
+		if tool["annotations"] != nil {
+			marked = append(marked, tool["name"].(string))
+		}
+	}
+	if got := strings.Join(marked, ","); got != "read_chat,search,list_sessions,list_chats" {
+		t.Errorf("read-only tools = %s", got)
+	}
+}
+
 func TestRender(t *testing.T) {
 	s := New(Options{}, nil, io.Discard)
 	if got := s.render("send", json.RawMessage(`{"text":"sent"}`)); got != "sent" {

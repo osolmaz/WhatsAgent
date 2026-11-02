@@ -98,7 +98,7 @@ func newDaemon(env paths.Env) *cobra.Command {
 			return daemon.Run(cmd.Context(), daemon.Options{
 				Dirs: dirs, Log: log, Version: version, ClaudeBin: claude, Bin: self,
 				CodexSocket: daemon.CodexSocket(codexHome(env)), CodexEvery: 20 * time.Second,
-				WebHost: web.host, WebNames: web.names,
+				WebHost: web.host, WebNames: web.names, Tools: mcp.ToolNames(),
 			})
 		},
 	}

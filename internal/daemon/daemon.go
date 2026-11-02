@@ -44,6 +44,9 @@ type Options struct {
 	CodexSocket string
 	// CodexEvery is how often the Codex adapter looks for threads.
 	CodexEvery time.Duration
+	// Tools are the WhatsAgent MCP tools, which Codex threads that WhatsAgent starts run without
+	// Codex asking.
+	Tools []string
 }
 
 // ErrRunning is returned when another daemon already serves the socket.
@@ -96,7 +99,7 @@ func Run(ctx context.Context, opts Options) error {
 func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Host,
 	opener *pageOpener) (*core.Core, *codex.Adapter) {
 	var c *core.Core
-	adapter := codex.New(codex.Options{Socket: opts.CodexSocket, Version: opts.Version, Log: opts.Log,
+	adapter := codex.New(codex.Options{Socket: opts.CodexSocket, Version: opts.Version, Log: opts.Log, Tools: opts.Tools,
 		Approve: func(ctx context.Context, title, detail string) bool {
 			return c.Approve(ctx, core.Caller{Session: "codex"}, title, detail, 30*time.Minute)
 		}})

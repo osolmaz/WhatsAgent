@@ -28,8 +28,10 @@ type fakeDaemon struct {
 	wmu     sync.Mutex
 	replies chan map[string]any
 	resume  bool
-	// reviewers records the approvalsReviewer of each thread/start and thread/resume.
+	// reviewers records the approvalsReviewer of each thread/start and thread/resume, and configs
+	// their config overrides.
 	reviewers []any
+	configs   []any
 }
 
 // shortDir returns a folder under /tmp, because a Unix socket path must stay under 104 bytes.
@@ -128,10 +130,10 @@ func (d *fakeDaemon) answer(method string, params any) (any, string) {
 		d.turns = append(d.turns, p["threadId"].(string)+": "+input["text"].(string))
 		return map[string]any{}, ""
 	case "thread/start":
-		d.reviewers = append(d.reviewers, p["approvalsReviewer"])
+		d.reviewers, d.configs = append(d.reviewers, p["approvalsReviewer"]), append(d.configs, p["config"])
 		return map[string]any{"thread": map[string]any{"id": "home-1"}}, ""
 	case "thread/resume":
-		d.reviewers = append(d.reviewers, p["approvalsReviewer"])
+		d.reviewers, d.configs = append(d.reviewers, p["approvalsReviewer"]), append(d.configs, p["config"])
 		if !d.resume {
 			return nil, "gone"
 		}
@@ -244,7 +246,7 @@ func TestApprovalRequestsAndNotifications(t *testing.T) {
 
 func TestHome(t *testing.T) {
 	d, socket := startDaemon(t)
-	a := New(Options{Socket: socket, Poll: 10 * time.Millisecond})
+	a := New(Options{Socket: socket, Poll: 10 * time.Millisecond, Tools: []string{"send", "read_chat"}})
 	defer a.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -292,6 +294,13 @@ func TestHome(t *testing.T) {
 	defer d.mu.Unlock()
 	if want := []any{nil, "auto_review", "auto_review", "auto_review"}; fmt.Sprint(d.reviewers) != fmt.Sprint(want) {
 		t.Errorf("approval reviewers = %v, want %v", d.reviewers, want)
+	}
+	// Every start and resume lets the WhatsAgent tools run without Codex asking.
+	want := "map[mcp_servers.whatsagent.tools.read_chat.approval_mode:approve mcp_servers.whatsagent.tools.send.approval_mode:approve]"
+	for i, config := range d.configs {
+		if fmt.Sprint(config) != want {
+			t.Errorf("config %d = %v", i, config)
+		}
 	}
 }
 
