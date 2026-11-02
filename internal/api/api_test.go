@@ -92,7 +92,7 @@ func TestOwnerTools(t *testing.T) {
 	if s := d.Expect("for an agent"); s.Text != "🤖 *Agent*: for an agent" {
 		t.Errorf("agent send = %q", s.Text)
 	}
-	// The owner answers the message, edits the answer, forwards it and deletes it.
+	// The owner answers the message, asks to edit and delete the answer, and forwards it.
 	if err := c.Tool(ctx, "", "send", api.SendArgs{Chat: "g@g.us", Text: "answer", ReplyTo: "M1"}, &text); err != nil {
 		t.Fatal(err)
 	}

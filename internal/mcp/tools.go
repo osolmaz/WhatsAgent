@@ -52,7 +52,7 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "edit_message",
-		"description": "Change the text of a message that WhatsAgent sent for an agent. WhatsApp allows this for text messages up to 15 minutes old. The send rules apply as for send.",
+		"description": "Change the text of a message that WhatsAgent sent for an agent. WhatsApp allows this for text messages up to 15 minutes old. Every edit waits for the owner's yes, which WhatsAgent asks for itself; no send rule skips it.",
 		"inputSchema": schema(map[string]any{
 			"chat":       str(chatHelp),
 			"message_id": str("The message ID."),
@@ -61,7 +61,7 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "delete_message",
-		"description": "Delete a message that WhatsAgent sent for an agent, for everyone in the chat. The send rules apply as for send.",
+		"description": "Delete a message that WhatsAgent sent for an agent, for everyone in the chat. Every deletion waits for the owner's yes, which WhatsAgent asks for itself; no send rule skips it.",
 		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "message_id": str("The message ID.")}, "chat", "message_id"),
 	},
 	{

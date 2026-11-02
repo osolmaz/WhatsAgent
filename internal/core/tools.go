@@ -266,18 +266,38 @@ func (c *Core) allowed(ctx context.Context, caller Caller, jid string) (model.Pe
 	return permission, nil
 }
 
+// confirm asks the owner before p runs, whoever the caller is: no send rule, conversation, setting
+// or CLI call skips the question. A deny rule for chat still refuses a session; an empty chat
+// skips that check.
+func (c *Core) confirm(ctx context.Context, caller Caller, chat string, p proposal) (string, error) {
+	if chat != "" {
+		if _, err := c.allowed(ctx, caller, chat); err != nil {
+			return "", err
+		}
+	}
+	return c.carry(ctx, caller, model.Ask, p)
+}
+
 // carry runs p at once for allow, and asks the owner first for ask.
 func (c *Core) carry(ctx context.Context, caller Caller, permission model.Permission, p proposal) (string, error) {
 	if permission == model.Allow {
 		return p.act(ctx)
 	}
 	where := c.approvalChat(ctx, caller.Session)
-	code := c.askIn(where, fmt.Sprintf("Approval: the agent session %s wants to %s", caller.Session, p.action), p.media,
+	code := c.askIn(where, fmt.Sprintf("Approval: %s wants to %s", requester(caller), p.action), p.media,
 		func(ctx context.Context, allow bool) string {
 			return c.decided(ctx, allow, p.act)
 		})
 	return fmt.Sprintf("waiting for the owner's yes in %s (code %s); it goes out after a yes",
 		c.describeChat(ctx, where), code), nil
+}
+
+// requester names who asks for an action in an approval question.
+func requester(caller Caller) string {
+	if caller.isOwner() {
+		return "the whatsagent CLI"
+	}
+	return "the agent session " + caller.Session
 }
 
 func (c *Core) decided(ctx context.Context, allow bool, act func(ctx context.Context) (string, error)) string {

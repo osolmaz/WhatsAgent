@@ -199,7 +199,8 @@ func newReact(env paths.Env) *cobra.Command {
 func newEdit(env paths.Env) *cobra.Command {
 	var a api.EditArgs
 	return toolCommand(env, "edit --chat <chat> --id <message id> --text <text>",
-		"Change the text of one of the owner's messages, up to 15 minutes after it was sent", "edit_message", &a,
+		"Change the text of one of the owner's messages, up to 15 minutes after it was sent, after the owner's yes "+
+			"in the self-chat", "edit_message", &a,
 		append(messageFlags(&a.Chat, &a.MessageID), flag{"text", "the new text", &a.Text, true})...)
 }
 
@@ -211,7 +212,8 @@ func messageCommand(env paths.Env, name, short, tool string) *cobra.Command {
 
 func newDelete(env paths.Env) *cobra.Command {
 	return messageCommand(env, "delete",
-		"Delete a message for everyone: the owner's own, or anyone's in a group the owner administers", "delete_message")
+		"Delete a message for everyone, after the owner's yes in the self-chat: the owner's own, or anyone's in a "+
+			"group the owner administers", "delete_message")
 }
 
 func newForward(env paths.Env) *cobra.Command {

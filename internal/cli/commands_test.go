@@ -110,7 +110,7 @@ func TestOwnerCommands(t *testing.T) {
 	if _, err := runCtx(context.Background(), env, "  \n", "send", "--to", "self"); err == nil {
 		t.Error("an empty send gave no error")
 	}
-	// The owner answers a message in a kept chat, edits the answer, forwards it and deletes it.
+	// The owner answers a message in a kept chat, asks to edit the answer, and forwards it.
 	keep(t, d, "g@g.us")
 	question := d.Receive("g@g.us", "when?", false)
 	if _, err := runCtx(context.Background(), env, "", "send", "--to", "g@g.us", "--text", "at 5", "--reply-to", question.ID); err != nil {
@@ -123,7 +123,6 @@ func TestOwnerCommands(t *testing.T) {
 	for _, args := range [][]string{
 		{"edit", "--chat", "g@g.us", "--id", answer.ID, "--text", "at 6"},
 		{"forward", "--chat", "g@g.us", "--id", answer.ID, "--to", "self"},
-		{"delete", "--chat", "g@g.us", "--id", answer.ID},
 		{"poll", "--to", "g@g.us", "--question", "Lunch?", "--option", "Pizza", "--option", "Sushi", "--multiple"},
 		{"location", "--to", "g@g.us", "--lat", "52.52", "--lng", "13.405", "--name", "Berlin"},
 		{"read", "--chat", "g@g.us", "--id", question.ID},
@@ -152,6 +151,12 @@ func TestOwnerCommands(t *testing.T) {
 			t.Errorf("%v = %q, %v", c.args, out, err)
 		}
 	}
+	// A deletion through the CLI waits for the owner's yes in the self-chat, as an agent's does.
+	out, err := runCtx(context.Background(), env, "", "delete", "--chat", "g@g.us", "--id", answer.ID)
+	if err != nil || !strings.Contains(out, "waiting for the owner's yes") {
+		t.Errorf("delete = %q, %v", out, err)
+	}
+	d.Expect("Approval: the whatsagent CLI wants to delete")
 	if _, err := runCtx(context.Background(), env, "", "profile", "--picture", "/no/such/photo.png"); err == nil {
 		t.Error("a missing picture gave no error")
 	}
