@@ -186,9 +186,11 @@ func (c *Core) MarkRead(ctx context.Context, caller Caller, ref, id string) (str
 	})
 }
 
-// Edit replaces the text of a message, following the send rules. An agent edits only messages
-// that WhatsAgent sent for agents, and the owner also their own. WhatsApp allows edits of text
-// messages for 15 minutes after they were sent.
+// Edit replaces the text of a message. Every edit waits for the owner's yes, whoever asks for it,
+// and a deny rule still refuses a session. An agent edits only messages that WhatsAgent sent for
+// agents, and the owner also their own. WhatsApp allows edits of text messages for 15 minutes
+// after they were sent. The message can change while the question waits, so the edit checks it
+// again after the yes.
 func (c *Core) Edit(ctx context.Context, caller Caller, ref, id, text string) (string, error) {
 	if strings.TrimSpace(text) == "" {
 		return "", errors.New("no text to send")
@@ -197,17 +199,16 @@ func (c *Core) Edit(ctx context.Context, caller Caller, ref, id, text string) (s
 	if err != nil {
 		return "", err
 	}
-	m, err := c.changeable(ctx, caller, jid, id, false)
+	m, err := c.editable(ctx, caller, jid, id)
 	if err != nil {
 		return "", err
 	}
-	if m.MediaType != "" || time.Since(m.Time) > editWindow {
-		return "", fmt.Errorf("WhatsApp edits only text messages up to %s old, and message %s is a %s from %s",
-			editWindow, id, cmp.Or(m.MediaType, "text message"), m.Time.In(c.cfg.Location).Format("15:04"))
-	}
-	return c.gate(ctx, caller, jid, proposal{
+	return c.confirm(ctx, caller, jid, proposal{
 		action: fmt.Sprintf("edit this message in %s:\n%s\nto read:\n%s", c.describeChat(ctx, jid), m.Body(), text),
 		act: func(ctx context.Context) (string, error) {
+			if _, err := c.editable(ctx, caller, jid, id); err != nil {
+				return "", err
+			}
 			if err := c.wa.Edit(ctx, jid, id, text); err != nil {
 				return "", err
 			}
@@ -217,15 +218,29 @@ func (c *Core) Edit(ctx context.Context, caller Caller, ref, id, text string) (s
 	})
 }
 
-// Delete deletes a message for everyone, following the send rules. An agent deletes only messages
-// that WhatsAgent sent for agents. The owner also deletes their own messages, and other people's
-// messages in a group, which WhatsApp allows when the owner is one of its admins.
+// editable returns the message id of chat when caller may edit it and WhatsApp still takes an
+// edit of it.
+func (c *Core) editable(ctx context.Context, caller Caller, chat, id string) (model.Message, error) {
+	m, err := c.changeable(ctx, caller, chat, id, false)
+	if err == nil && (m.MediaType != "" || time.Since(m.Time) > editWindow) {
+		err = fmt.Errorf("WhatsApp edits only text messages up to %s old, and message %s is a %s from %s",
+			editWindow, id, cmp.Or(m.MediaType, "text message"), m.Time.In(c.cfg.Location).Format("15:04"))
+	}
+	return m, err
+}
+
+// Delete deletes a message for everyone. Every deletion waits for the owner's yes, whoever asks for
+// it, and a deny rule still refuses a session. An agent deletes only messages that WhatsAgent sent
+// for agents. The owner also deletes their own messages, and other people's messages in a group,
+// which WhatsApp allows when the owner is one of its admins. The deletion checks the message again
+// after the yes.
 func (c *Core) Delete(ctx context.Context, caller Caller, ref, id string) (string, error) {
 	jid, err := c.resolveChat(ctx, ref)
 	if err != nil {
 		return "", err
 	}
-	m, err := c.changeable(ctx, caller, jid, id, strings.HasSuffix(jid, "@g.us"))
+	group := strings.HasSuffix(jid, "@g.us")
+	m, err := c.changeable(ctx, caller, jid, id, group)
 	if err != nil {
 		return "", err
 	}
@@ -233,10 +248,13 @@ func (c *Core) Delete(ctx context.Context, caller Caller, ref, id string) (strin
 	if !m.FromMe {
 		sender = cmp.Or(m.RawSender, m.Sender)
 	}
-	return c.gate(ctx, caller, jid, proposal{
+	return c.confirm(ctx, caller, jid, proposal{
 		action: fmt.Sprintf("delete this message from %s in %s for everyone:\n%s", senderLabel(m),
 			c.describeChat(ctx, jid), m.Body()),
 		act: func(ctx context.Context) (string, error) {
+			if _, err := c.changeable(ctx, caller, jid, id, group); err != nil {
+				return "", err
+			}
 			if err := c.wa.Revoke(ctx, jid, sender, id); err != nil {
 				return "", err
 			}

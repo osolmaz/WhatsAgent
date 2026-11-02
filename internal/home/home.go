@@ -41,8 +41,8 @@ const homeTools = "Use the whatsagent MCP tools for WhatsApp: read_chat, search,
 	"delete_message, forward_message, send_poll, send_location, typing, mark_read, download_media, group_info, " +
 	"manage_group, create_group, join_group, find_contacts, contact_info, set_profile, list_chats, list_sessions " +
 	"and command. send also sends a file, such as a photo, a PDF or a voice message, by its path, and answers " +
-	"one message with reply_to. Sends to other chats follow the owner's send rules, and changes to groups and " +
-	"to the owner's profile always wait for the owner's yes."
+	"one message with reply_to. Sends to other chats follow the owner's send rules. Edits and deletions of " +
+	"messages, and changes to groups and to the owner's profile, always wait for the owner's yes."
 
 // ChatInstructions tell a chat's own agent what it is. name is the agents' name, and label and
 // chat are the chat's name and ID.
@@ -57,7 +57,7 @@ func ChatInstructions(name, label, chat string) string {
 		"Use the whatsagent read_chat tool with this chat_id to read what you may read of the chat, for example "+
 		"the recent messages when the owner calls you. react, edit_message, delete_message, send_poll, "+
 		"send_location, typing, mark_read, download_media, group_info and manage_group work in this chat too; "+
-		"group changes wait for the owner's yes. send also sends a file, "+
+		"edits, deletions and group changes wait for the owner's yes. send also sends a file, "+
 		"such as a photo, a PDF or a voice message, by its path, and answers one message with reply_to. "+
 		"You have Claude Code's tools. When the owner asks you to watch something over time, such as a flight "+
 		"or a web page, check it with the Monitor tool or a background command, and report in the chat with send.",

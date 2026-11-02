@@ -58,46 +58,86 @@ func TestRepliesAndMentions(t *testing.T) {
 	}
 }
 
-func TestEditAndDelete(t *testing.T) {
+// changeScene is a kept group "Team", routed to bot, with a message that WhatsAgent sent for bot,
+// one from the owner and one from someone else, and a kept direct chat "Sam".
+type changeScene struct {
+	h              *harness
+	bot            Caller
+	mine           sentText
+	owners, theirs model.Message
+}
+
+func newChangeScene(t *testing.T) changeScene {
 	h := newHarness(t)
-	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
 	h.core.OnChatName("sam@s.whatsapp.net", "Sam")
 	h.keep("g@g.us", "sam@s.whatsapp.net")
-	_, _ = h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "bot"}, model.ModeAll)
+	_, _ = h.core.setRoute(h.ctx, model.Route{Chat: "g@g.us", Session: "bot"}, model.ModeAll)
 	bot := Caller{Session: "bot"}
 	h.converse("bot", "g@g.us", model.RoleOwner)
-	_, _ = h.core.Send(ctx, bot, "Team", "draft")
+	_, _ = h.core.Send(h.ctx, bot, "Team", "draft")
 	mine := h.expect("draft")
-	owners := h.receive("g@g.us", "the owner's words", true)
-	theirs := h.receive("g@g.us", "someone else's words", false)
+	return changeScene{h: h, bot: bot, mine: mine, owners: h.receive("g@g.us", "the owner's words", true),
+		theirs: h.receive("g@g.us", "someone else's words", false)}
+}
 
-	// An agent edits WhatsAgent's message, which keeps the prefix, and the store follows.
-	if out, err := h.core.Edit(ctx, bot, "Team", mine.id, "final"); err != nil || out != "edited" {
-		t.Fatalf("Edit = %q, %v", out, err)
+// asked checks that a change only asked the owner, and returns the code of the question that
+// contains want.
+func (h *harness) asked(want string) func(string, error) string {
+	return func(out string, err error) string {
+		h.t.Helper()
+		if err != nil || !strings.Contains(out, "waiting for the owner's yes") {
+			h.t.Fatalf("the change did not ask the owner: %q, %v", out, err)
+		}
+		return h.expectCode(want)
 	}
-	if edit := h.expect("final"); edit.kind != "edit" || edit.id != mine.id || edit.text != "🤖 *Agent*: final" {
+}
+
+// waiting reports whether the question with code still waits for an answer.
+func (h *harness) waiting(code string) bool {
+	h.core.mu.Lock()
+	defer h.core.mu.Unlock()
+	return h.core.pending[code] != nil
+}
+
+func TestEditsWaitForTheOwner(t *testing.T) {
+	s := newChangeScene(t)
+	h, ctx, bot := s.h, s.h.ctx, s.bot
+
+	// An agent's edit waits for the owner's yes in its own conversation and under an allow rule, and
+	// a "yes" that WhatsAgent sends approves nothing. The edit keeps the prefix, and the store follows.
+	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "g@g.us", Permission: model.Allow})
+	code := h.asked("Approval: the agent session bot wants to edit this message in \"Team\" (group):\n" +
+		"🤖 *Agent*: draft\nto read:\n🤖 *Agent*: final")(h.core.Edit(ctx, bot, "Team", s.mine.id, "final"))
+	_, _ = h.core.Send(ctx, Owner, "Team", "yes "+code)
+	echo := h.expect("yes " + code)
+	h.core.OnUpdate(model.Update{Kind: model.New, Message: model.Message{Chat: "g@g.us", ID: echo.id, FromMe: true,
+		Text: "yes " + code, Time: time.Now().UTC()}})
+	if !h.waiting(code) {
+		t.Fatal("a yes that WhatsAgent sent approved the edit")
+	}
+	h.receive("g@g.us", "yes "+code, true)
+	if edit := h.expectKind("edit"); edit.id != s.mine.id || edit.text != "🤖 *Agent*: final" {
 		t.Errorf("edit %+v", edit)
 	}
-	if stored, _, _ := h.st.Message(ctx, "g@g.us", mine.id); stored.Text != "🤖 *Agent*: final" || !stored.Edited {
+	if stored, _, _ := h.st.Message(ctx, "g@g.us", s.mine.id); stored.Text != "🤖 *Agent*: final" || !stored.Edited {
 		t.Errorf("stored edit %+v", stored)
 	}
-	for name, err := range map[string]error{
-		"the owner's message":    first(h.core.Edit(ctx, bot, "Team", owners.ID, "x")),
-		"someone else's message": first(h.core.Delete(ctx, bot, "Team", theirs.ID)),
-		"an empty text":          first(h.core.Edit(ctx, bot, "Team", mine.id, " ")),
-		"a missing message":      first(h.core.Delete(ctx, bot, "Team", "missing")),
-	} {
-		if err == nil {
-			t.Errorf("an agent changed %s", name)
-		}
+
+	// The owner's edit through the CLI asks in the self-chat too.
+	code = h.asked("Approval: the whatsagent CLI wants to edit this message")(
+		h.core.Edit(ctx, Owner, "Team", s.owners.ID, "better words"))
+	h.receive(self, "yes "+code, true)
+	if edit := h.expectKind("edit"); edit.text != "better words" {
+		t.Errorf("owner edit %+v", edit)
 	}
 
-	// The owner edits their own message, but not after 15 minutes and not a photo.
-	if _, err := h.core.Edit(ctx, Owner, "Team", owners.ID, "better words"); err != nil {
-		t.Fatal(err)
-	}
-	h.expect("better words")
+	// After the yes, the edit checks the message again: here it was deleted while the question waited.
+	code = h.asked("wants to edit")(h.core.Edit(ctx, bot, "Team", s.mine.id, "later"))
+	h.core.OnUpdate(model.Update{Kind: model.Delete, Message: model.Message{Chat: "g@g.us", ID: s.mine.id}})
+	h.receive("g@g.us", "yes "+code, true)
+	h.expect("Failed: ")
+
 	old := model.Message{Chat: "g@g.us", ID: "OLD", FromMe: true, Role: model.RoleOwner, Text: "old",
 		Time: time.Now().Add(-time.Hour)}
 	photo := model.Message{Chat: "g@g.us", ID: "IMG", FromMe: true, Role: model.RoleOwner, MediaType: "image",
@@ -108,40 +148,72 @@ func TestEditAndDelete(t *testing.T) {
 			t.Errorf("edit of %s = %v", m.ID, err)
 		}
 	}
-
-	// Deleting: the agent its own message, the owner someone else's message in a group but not in a
-	// direct chat, and nothing twice.
-	if _, err := h.core.Delete(ctx, bot, "Team", mine.id); err != nil {
-		t.Fatal(err)
+	_, _ = h.core.Send(ctx, bot, "Team", "spare")
+	spare := h.expect("spare")
+	_ = h.st.SetRule(ctx, model.Rule{Session: "bot", Chat: "g@g.us", Permission: model.Deny})
+	if _, err := h.core.Edit(ctx, bot, "Team", spare.id, "x"); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("edit in a chat that a rule denies = %v", err)
 	}
-	if revoke := h.expectKind("revoke"); revoke.id != mine.id || revoke.text != "" {
+	for name, err := range map[string]error{
+		"the owner's message":    first(h.core.Edit(ctx, bot, "Team", s.owners.ID, "x")),
+		"someone else's message": first(h.core.Edit(ctx, Owner, "Team", s.theirs.ID, "x")),
+		"an empty text":          first(h.core.Edit(ctx, bot, "Team", s.mine.id, " ")),
+		"a deleted message":      first(h.core.Edit(ctx, Owner, "Team", s.mine.id, "x")),
+		"a message of no chat":   first(h.core.Edit(ctx, Owner, "", "x", "x")),
+		"a missing message":      first(h.core.Edit(ctx, Owner, "Team", "missing", "x")),
+	} {
+		if err == nil {
+			t.Errorf("an edit of %s gave no error", name)
+		}
+	}
+}
+
+func TestDeletesWaitForTheOwner(t *testing.T) {
+	s := newChangeScene(t)
+	h, ctx, bot := s.h, s.h.ctx, s.bot
+
+	// An agent asks twice to delete its own message. The first yes deletes it, and the second fails,
+	// because the deletion checks the message again after the yes.
+	ask := h.asked("Approval: the agent session bot wants to delete this message")
+	firstCode := ask(h.core.Delete(ctx, bot, "Team", s.mine.id))
+	secondCode := ask(h.core.Delete(ctx, bot, "Team", s.mine.id))
+	h.receive("g@g.us", "yes "+firstCode, true)
+	if revoke := h.expectKind("revoke"); revoke.id != s.mine.id || revoke.text != "" {
 		t.Errorf("revoke %+v", revoke)
 	}
-	if stored, _, _ := h.st.Message(ctx, "g@g.us", mine.id); !stored.Deleted {
+	if stored, _, _ := h.st.Message(ctx, "g@g.us", s.mine.id); !stored.Deleted {
 		t.Error("the deletion was not stored")
 	}
-	if _, err := h.core.Edit(ctx, bot, "Team", mine.id, "again"); err == nil {
-		t.Error("a deleted message was edited")
-	}
-	if _, err := h.core.Delete(ctx, Owner, "Team", theirs.ID); err != nil {
-		t.Fatal(err)
-	}
+	h.receive("g@g.us", "yes "+secondCode, true)
+	h.expect("Failed: message " + s.mine.id + " is deleted")
+
+	// The owner's CLI deletes someone else's message in a group after a yes in the self-chat.
+	code := h.asked("Approval: the whatsagent CLI wants to delete this message from Sam")(
+		h.core.Delete(ctx, Owner, "Team", s.theirs.ID))
+	h.receive(self, "yes "+code, true)
 	if revoke := h.expectKind("revoke"); revoke.text != "200@s.whatsapp.net" {
 		t.Errorf("the owner's revoke names %q as the sender", revoke.text)
+	}
+
+	// No agent changes one of WhatsAgent's own messages, such as an approval, and nobody deletes
+	// someone else's message in a direct chat.
+	_, _ = h.st.Apply(ctx, model.Update{Kind: model.New, Message: model.Message{Chat: "g@g.us", ID: "GEAR",
+		FromMe: true, Role: model.RoleAgent, Text: "⚙️ Approval: ...", Time: time.Now()}})
+	if _, err := h.core.Delete(ctx, bot, "Team", "GEAR"); !errors.Is(err, ErrNotAllowed) {
+		t.Errorf("delete of WhatsAgent's own message = %v", err)
 	}
 	direct := h.receive("sam@s.whatsapp.net", "hi", false)
 	if _, err := h.core.Delete(ctx, Owner, "Sam", direct.ID); !errors.Is(err, ErrNotAllowed) {
 		t.Errorf("delete of someone else's direct message = %v", err)
 	}
-	if _, err := h.core.Delete(ctx, Owner, "", "x"); err == nil {
-		t.Error("a delete without a chat gave no error")
-	}
-
-	// No agent changes one of WhatsAgent's own messages, such as an approval.
-	_, _ = h.st.Apply(ctx, model.Update{Kind: model.New, Message: model.Message{Chat: "g@g.us", ID: "GEAR",
-		FromMe: true, Role: model.RoleAgent, Text: "⚙️ Approval: ...", Time: time.Now()}})
-	if _, err := h.core.Delete(ctx, bot, "Team", "GEAR"); !errors.Is(err, ErrNotAllowed) {
-		t.Errorf("delete of WhatsAgent's own message = %v", err)
+	for name, err := range map[string]error{
+		"someone else's message": first(h.core.Delete(ctx, bot, "Team", s.owners.ID)),
+		"a missing message":      first(h.core.Delete(ctx, bot, "Team", "missing")),
+		"a message of no chat":   first(h.core.Delete(ctx, Owner, "", "x")),
+	} {
+		if err == nil {
+			t.Errorf("a delete of %s gave no error", name)
+		}
 	}
 }
 

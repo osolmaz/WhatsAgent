@@ -19,12 +19,7 @@ func (c *Core) administer(ctx context.Context, caller Caller, chat string, p pro
 	if caller.isOwner() {
 		return p.act(ctx)
 	}
-	if chat != "" {
-		if _, err := c.allowed(ctx, caller, chat); err != nil {
-			return "", err
-		}
-	}
-	return c.carry(ctx, caller, model.Ask, p)
+	return c.confirm(ctx, caller, chat, p)
 }
 
 // groupChat resolves a reference to a group.
