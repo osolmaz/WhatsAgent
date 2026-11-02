@@ -40,6 +40,9 @@ type Options struct {
 	Poll time.Duration
 	// MaxWait is how long a push waits for a busy thread.
 	MaxWait time.Duration
+	// Tools are the WhatsAgent MCP tools. Threads that the adapter starts run them without Codex
+	// asking first, because WhatsAgent checks each call itself.
+	Tools []string
 }
 
 // Adapter is the Codex adapter.

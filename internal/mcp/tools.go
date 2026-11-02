@@ -20,11 +20,15 @@ func integer(description string) map[string]any {
 const chatHelp = "The chat: a JID such as 15551234567@s.whatsapp.net or 1203...@g.us, a phone number, " +
 	"\"self\" for the owner's own chat, or a unique part of the chat's name."
 
+// readOnly marks a tool that changes nothing, so a harness such as Codex runs it without asking.
+var readOnly = map[string]any{"readOnlyHint": true}
+
 var toolList = []map[string]any{
 	{
 		"name":        "read_chat",
 		"description": "Read the latest messages of a WhatsApp chat that you may read, oldest first. The chat's mode decides which: every message, only the owner's messages that name the agents, or the messages of the open window.",
 		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "limit": integer("How many messages, default 50.")}, "chat"),
+		"annotations": readOnly,
 	},
 	{
 		"name":        "search",
@@ -34,6 +38,7 @@ var toolList = []map[string]any{
 			"chat":  str("Optional chat to search in. " + chatHelp),
 			"limit": integer("How many messages, default 30."),
 		}, "query"),
+		"annotations": readOnly,
 	},
 	{
 		"name":        "send",
@@ -68,11 +73,13 @@ var toolList = []map[string]any{
 		"name":        "list_sessions",
 		"description": "List the agent sessions that WhatsAgent knows, with their harness, folder, push state and waiting messages.",
 		"inputSchema": schema(map[string]any{}),
+		"annotations": readOnly,
 	},
 	{
 		"name":        "list_chats",
 		"description": "Find WhatsApp chats by name or JID, most recently active first.",
 		"inputSchema": schema(map[string]any{"query": str("Part of the chat name or JID; empty lists all."), "limit": integer("How many chats, default 30.")}),
+		"annotations": readOnly,
 	},
 	{
 		"name":        "command",
@@ -87,4 +94,13 @@ var toolList = []map[string]any{
 			"input":     map[string]any{"type": "object", "description": "The tool's input."},
 		}, "tool_name"),
 	},
+}
+
+// ToolNames returns the names of the WhatsAgent MCP tools.
+func ToolNames() []string {
+	names := make([]string, len(toolList))
+	for i, t := range toolList {
+		names[i] = t["name"].(string)
+	}
+	return names
 }
