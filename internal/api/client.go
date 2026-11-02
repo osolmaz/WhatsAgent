@@ -94,26 +94,27 @@ func (c *Client) post(ctx context.Context, path string, body []byte, out any) er
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-// WebURL returns the address of the daemon's browser page, with its access token.
-func (c *Client) WebURL(ctx context.Context) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/v1/web", nil)
+// OpenWeb asks the daemon to open its browser page in this machine's default browser, and
+// reports whether it could.
+func (c *Client) OpenWeb(ctx context.Context) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/web", nil)
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	resp, err := c.do(req)
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	defer resp.Body.Close()
 	var r ToolResponse
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
-		return "", err
+		return false, err
 	}
 	if r.Error != "" {
-		return "", errors.New(r.Error)
+		return false, errors.New(r.Error)
 	}
-	var t Text
-	return t.Text, json.Unmarshal(r.Result, &t)
+	var o Opened
+	return o.Opened, json.Unmarshal(r.Result, &o)
 }
 
 // Permission relays a permission prompt to the owner.

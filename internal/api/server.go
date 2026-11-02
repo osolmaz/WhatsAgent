@@ -60,15 +60,18 @@ type Server struct {
 	mux   *http.ServeMux
 }
 
-// NewServer returns the API server for c.
-func NewServer(c *core.Core, webURL string) *Server {
+// Opened is the answer to a request to open the browser page.
+type Opened struct {
+	Opened bool `json:"opened"`
+}
+
+// NewServer returns the API server for c. openPage opens the browser page in this machine's
+// default browser and reports whether it could; the page's link never leaves the daemon this way,
+// because the link is a way to see messages.
+func NewServer(c *core.Core, openPage func() bool) *Server {
 	s := &Server{core: c, tools: tools(), mux: http.NewServeMux()}
-	s.mux.HandleFunc("GET /v1/web", func(w http.ResponseWriter, _ *http.Request) {
-		if webURL == "" {
-			reply(w, nil, errors.New("the daemon serves no browser page"))
-			return
-		}
-		reply(w, Text{webURL}, nil)
+	s.mux.HandleFunc("POST /v1/web", func(w http.ResponseWriter, _ *http.Request) {
+		reply(w, Opened{openPage()}, nil)
 	})
 	s.mux.HandleFunc("GET /v1/session", s.session)
 	s.mux.HandleFunc("GET /v1/watch", s.watch)

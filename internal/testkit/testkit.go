@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -82,6 +83,9 @@ type Daemon struct {
 	WA     *WhatsApp
 	Socket string
 	n      int
+	// Opens counts the requests to open the browser page, and NoDesktop makes them fail.
+	Opens     atomic.Int32
+	NoDesktop atomic.Bool
 }
 
 // Start runs a daemon API on socket until the test ends.
@@ -100,7 +104,12 @@ func Start(t *testing.T, socket string) *Daemon {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := &http.Server{Handler: api.NewServer(c, "http://127.0.0.1:1/?token=test"), ReadHeaderTimeout: time.Second}
+	d := &Daemon{t: t, Core: c, Store: st, WA: wa, Socket: socket}
+	openPage := func() bool {
+		d.Opens.Add(1)
+		return !d.NoDesktop.Load()
+	}
+	server := &http.Server{Handler: api.NewServer(c, openPage), ReadHeaderTimeout: time.Second}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
 		cancel()
@@ -108,7 +117,7 @@ func Start(t *testing.T, socket string) *Daemon {
 		st.Close()
 	})
 	c.OnState("connected")
-	return &Daemon{t: t, Core: c, Store: st, WA: wa, Socket: socket}
+	return d
 }
 
 // Receive delivers a live message from WhatsApp.
@@ -116,8 +125,24 @@ func (d *Daemon) Receive(chat, text string, fromMe bool) model.Message {
 	d.n++
 	m := model.Message{Chat: chat, ID: fmt.Sprintf("M%d", d.n), Sender: "200@s.whatsapp.net", SenderName: "Sam",
 		Time: time.Now().UTC(), FromMe: fromMe, Text: text}
-	d.Core.OnUpdate(model.Update{Kind: model.New, Message: m}, true)
+	d.Core.OnUpdate(model.Update{Kind: model.New, Message: m})
 	return m
+}
+
+// Keep makes chat kept, so callers that are not run agents may read it.
+func (d *Daemon) Keep(chat string) {
+	d.t.Helper()
+	if _, _, err := d.Store.Keep(context.Background(), chat); err != nil {
+		d.t.Fatal(err)
+	}
+}
+
+// Phone runs a command as the owner writes it in the self-chat, the only source of changes, and
+// waits for WhatsAgent's reply that contains want.
+func (d *Daemon) Phone(line, want string) {
+	d.t.Helper()
+	d.Receive(SelfChat, line, true)
+	d.Expect(want)
 }
 
 // Expect waits for a sent message that contains want.

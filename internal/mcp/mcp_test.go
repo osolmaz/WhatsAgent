@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/osolmaz/WhatsAgent/internal/api"
-	"github.com/osolmaz/WhatsAgent/internal/core"
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/testkit"
 )
@@ -109,9 +108,8 @@ func TestChannelSession(t *testing.T) {
 	socket := filepath.Join(testkit.ShortDir(t), "d.sock")
 	d := testkit.Start(t, socket)
 	d.Core.OnChatName("g@g.us", "Team")
-	if _, err := d.Core.Run(context.Background(), core.Owner, "/route Team dev"); err != nil {
-		t.Fatal(err)
-	}
+	d.Phone("/route Team dev", "now goes to dev")
+	d.Keep("g@g.us")
 	c := run(t, Options{Name: "dev", Harness: "claude", Push: true, Version: "test", Location: time.UTC}, socket)
 
 	init := c.call("initialize", map[string]any{"protocolVersion": "2026-07-28"})
@@ -193,6 +191,28 @@ func TestChannelSession(t *testing.T) {
 		t.Errorf("verdict = %v", verdict)
 	}
 	c.send(`{"jsonrpc":"2.0","method":"notifications/claude/channel/permission_request","params":"bad"}`)
+}
+
+// TestClaimedHomeReadsOnlyKeptChats is what `WHATSAGENT_SESSION=home whatsagent channel` gets: an
+// MCP server that only claims home's name reads kept chats only, although home sees every chat.
+func TestClaimedHomeReadsOnlyKeptChats(t *testing.T) {
+	socket := filepath.Join(testkit.ShortDir(t), "d.sock")
+	d := testkit.Start(t, socket)
+	d.Core.OnChatName("o@g.us", "Other")
+	d.Core.OnChatName("k@g.us", "Kept")
+	d.Keep("k@g.us")
+	d.Receive("o@g.us", "OTHER-SECRET", false)
+	d.Receive("k@g.us", "kept text", false)
+	c := run(t, Options{Name: "home", Harness: "claude", Version: "test", Location: time.UTC}, socket)
+	c.call("initialize", map[string]any{})
+	text, isErr := resultText(t, c.call("tools/call", map[string]any{"name": "read_chat", "arguments": map[string]any{"chat": "Other"}}))
+	if !isErr || strings.Contains(text, "OTHER-SECRET") || !strings.Contains(text, "does not keep") {
+		t.Errorf("claimed home's read of a chat that is not kept = %q, error %v", text, isErr)
+	}
+	text, _ = resultText(t, c.call("tools/call", map[string]any{"name": "search", "arguments": map[string]any{"query": "e"}}))
+	if strings.Contains(text, "OTHER-SECRET") || !strings.Contains(text, "kept text") {
+		t.Errorf("claimed home's search = %q", text)
+	}
 }
 
 func TestToolsOnlyWithoutDaemon(t *testing.T) {

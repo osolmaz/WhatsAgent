@@ -16,6 +16,7 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/core"
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/paths"
+	"github.com/osolmaz/WhatsAgent/internal/peer"
 	"github.com/osolmaz/WhatsAgent/internal/store"
 	"github.com/osolmaz/WhatsAgent/internal/term"
 	"github.com/osolmaz/WhatsAgent/internal/wa"
@@ -134,6 +135,40 @@ func TestHelpers(t *testing.T) {
 	}
 }
 
+// TestVerifier checks that a check-in counts as a run agent only when the process on the other
+// end of the socket descends from the process of the session it names.
+func TestVerifier(t *testing.T) {
+	listener, err := net.Listen("unix", filepath.Join(shortDir(t), "v.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	client, err := net.Dial("unix", listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	server, err := listener.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	ctx := peer.ConnContext(context.Background(), server)
+	// This test process is the other end; it descends from its parent, which plays home's process.
+	verify := verifier(func(session string) int {
+		if session == "home" {
+			return os.Getppid()
+		}
+		return 0
+	})
+	if !verify(ctx, "home") {
+		t.Error("a descendant of home's process is not home")
+	}
+	if verify(ctx, "chat-team") || verify(context.Background(), "home") {
+		t.Error("a session without its own process, or a check-in without a peer, counts as a run agent")
+	}
+}
+
 func openStore(t *testing.T) *store.Store {
 	t.Helper()
 	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "w.db"))
@@ -168,7 +203,8 @@ func TestBuildAndDiscover(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	c, adapter := build(Options{Dirs: d, CodexSocket: filepath.Join(d.Data, "none.sock")}, st, client, term.NewHost(), nil)
+	c, adapter := build(Options{Dirs: d, CodexSocket: filepath.Join(d.Data, "none.sock")}, st, client, term.NewHost(), nil,
+		"http://page/?token=t")
 	if c == nil || adapter == nil {
 		t.Fatal("build returned nil")
 	}

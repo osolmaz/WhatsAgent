@@ -36,10 +36,11 @@ go:
         - internal/cli
     - from: internal/browser
       allow: []
+    - from: internal/peer
+      allow: []
     - from: internal/cli
       allow:
         - internal/api
-        - internal/browser
         - internal/core
         - internal/daemon
         - internal/mcp
@@ -71,6 +72,7 @@ go:
         - internal/home
         - internal/model
         - internal/paths
+        - internal/peer
         - internal/store
         - internal/term
         - internal/wa

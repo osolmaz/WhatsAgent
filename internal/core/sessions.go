@@ -16,20 +16,24 @@ import (
 // ErrUnknownToken is returned for a session token that WhatsAgent did not issue.
 var ErrUnknownToken = errors.New("unknown session token: check in again")
 
-// conn is one checked-in session process, such as one WhatsAgent MCP server.
+// conn is one checked-in session process, such as one WhatsAgent MCP server. verified is true
+// for the MCP server of a run agent, which Config.Verify recognized by its process.
 type conn struct {
-	token string
-	info  model.Session
+	token    string
+	info     model.Session
+	verified bool
 }
 
-// subscriber is the one push target of a session name.
+// subscriber is the one push target of a session name. Only a verified subscriber, a run agent,
+// gets the events of chats that are not kept.
 type subscriber struct {
-	name   string
-	push   string
-	extra  []string
-	pusher Pusher
-	wake   chan struct{}
-	cancel context.CancelFunc
+	name     string
+	push     string
+	extra    []string
+	pusher   Pusher
+	verified bool
+	wake     chan struct{}
+	cancel   context.CancelFunc
 }
 
 // CheckIn registers a session process and returns its token and session name. The name
@@ -41,8 +45,9 @@ func (c *Core) CheckIn(ctx context.Context, info model.Session) (string, string,
 		return "", "", err
 	}
 	token := randomToken()
+	verified := c.cfg.Verify != nil && c.cfg.Verify(ctx, info.Name)
 	c.mu.Lock()
-	c.conns[token] = &conn{token: token, info: info}
+	c.conns[token] = &conn{token: token, info: info, verified: verified}
 	c.mu.Unlock()
 	return token, info.Name, nil
 }
@@ -84,7 +89,7 @@ func (c *Core) Caller(token string) (Caller, error) {
 	if !ok {
 		return Caller{}, ErrUnknownToken
 	}
-	return Caller{Session: cn.info.Name}, nil
+	return Caller{Session: cn.info.Name, verified: cn.verified}, nil
 }
 
 // Subscribe makes the session of token a push session and delivers its routed events to pusher
@@ -94,7 +99,7 @@ func (c *Core) Subscribe(ctx context.Context, token, push string, pusher Pusher)
 	if err != nil {
 		return err
 	}
-	return c.serve(ctx, &subscriber{name: caller.Session, push: push, pusher: pusher})
+	return c.serve(ctx, &subscriber{name: caller.Session, push: push, pusher: pusher, verified: caller.verified})
 }
 
 // Watch delivers the events of the named session's routes, plus the extra chats, to pusher until
@@ -221,7 +226,7 @@ func (c *Core) wakeAll() {
 // deliver pushes a batch of events after the session's cursor and moves the cursor past them.
 // After a full batch it wakes the session again for the next one.
 func (c *Core) deliver(ctx context.Context, sub *subscriber) error {
-	events, err := c.waiting(ctx, sub.name, sub.extra, eventBatch)
+	events, err := c.waiting(ctx, sub.name, sub.extra, sub.verified, eventBatch)
 	if err != nil || len(events.all) == 0 {
 		return err
 	}
@@ -251,7 +256,9 @@ type batch struct {
 	keep []model.Event
 }
 
-func (c *Core) waiting(ctx context.Context, name string, extra []string, limit int) (batch, error) {
+// waiting returns the next events after a session's cursor. A session that is not verified gets
+// only the events of kept chats; it skips the others for good.
+func (c *Core) waiting(ctx context.Context, name string, extra []string, verified bool, limit int) (batch, error) {
 	cursor, err := c.st.Cursor(ctx, name)
 	if err != nil {
 		return batch{}, err
@@ -269,15 +276,35 @@ func (c *Core) waiting(ctx context.Context, name string, extra []string, limit i
 	if routes, err = c.st.Routes(ctx); err != nil {
 		return batch{}, err
 	}
-	t := c.targets(ctx, name, extra, routes)
-	b := batch{all: all}
+	return batch{all: all, keep: c.forSession(ctx, c.targets(ctx, name, extra, routes), all, verified)}, nil
+}
+
+// forSession keeps the events that a session's targets want, and for a session that is not
+// verified only the events of kept chats.
+func (c *Core) forSession(ctx context.Context, t targets, all []model.Event, verified bool) []model.Event {
+	var keep []model.Event
 	views := map[string]view{}
+	kept := map[string]bool{}
 	for _, e := range all {
-		if c.wanted(ctx, t, views, e) {
-			b.keep = append(b.keep, e)
+		if c.wanted(ctx, t, views, e) && (verified || c.keptChat(ctx, e.Message.Chat, kept)) {
+			keep = append(keep, e)
 		}
 	}
-	return b, nil
+	return keep
+}
+
+// keptChat reports whether chat is kept, remembering the answer in known. A store error counts as
+// not kept, so the chat stays hidden.
+func (c *Core) keptChat(ctx context.Context, chat string, known map[string]bool) bool {
+	kept, ok := known[chat]
+	if !ok {
+		var err error
+		if kept, err = c.st.Kept(ctx, chat); err != nil {
+			c.log.Warn("read whether a chat is kept", "chat", chat, "err", err)
+		}
+		known[chat] = kept
+	}
+	return kept
 }
 
 // targets is the set of chats that a session handles. Chats in full come with every message:
@@ -394,14 +421,15 @@ func (c *Core) Sessions(ctx context.Context) ([]model.Session, error) {
 		online[cn.info.Name] = true
 	}
 	push := map[string]string{}
+	verified := map[string]bool{}
 	for name, sub := range c.subs {
-		push[name] = sub.push
+		push[name], verified[name] = sub.push, sub.verified
 	}
 	c.mu.Unlock()
 	for i := range known {
 		s := &known[i]
 		s.Online, s.Push = online[s.Name] || push[s.Name] != "", push[s.Name]
-		if b, err := c.waiting(ctx, s.Name, nil, 1000); err == nil {
+		if b, err := c.waiting(ctx, s.Name, nil, verified[s.Name], 1000); err == nil {
 			s.Waiting = len(b.keep)
 		}
 	}

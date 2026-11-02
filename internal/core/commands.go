@@ -51,6 +51,10 @@ func init() {
 		{"prefix", "/prefix [<text>|off]", "Show or set the text in front of every agent message. " +
 			"{name} and {session} are filled in, \\n is a line break, and WhatsApp formatting such as *bold* works.",
 			true, cmdPrefix},
+		{"keep", "/keep [<chat> on|off]", "List the kept chats, whose messages WhatsAgent stores, or keep a chat " +
+			"or stop keeping it. Other chats stay in memory for a day. Off deletes the chat's stored messages.",
+			true, cmdKeep},
+		{"web", "/web", "Send the link of the browser page, which shows the agents that WhatsAgent runs.", false, cmdWeb},
 	}
 }
 
@@ -68,22 +72,40 @@ func cmdHelp(context.Context, *Core, string) (string, error) {
 	return helpText(), nil
 }
 
-// Run runs a command line such as "/route Sam billing" for caller. A session's commands that
-// change state wait for the owner's yes in the self-chat.
+// phoneOnly are the commands that run only from the phone, even without arguments: /web answers
+// with the browser page's link, which is a way to see messages.
+var phoneOnly = map[string]bool{"web": true}
+
+// errPhone says that a command runs only from the phone.
+func errPhone(name string) error {
+	return fmt.Errorf("%w: /%s with these arguments runs only from the self-chat on your phone", ErrNotAllowed, name)
+}
+
+// Run runs a command line such as "/route Sam billing" for caller. A command that changes state,
+// which is a mutating command with arguments, runs only from the phone: through the CLI it is
+// refused, and a session's request waits for the owner's yes in the self-chat. The bare form of
+// every command only shows state.
 func (c *Core) Run(ctx context.Context, caller Caller, line string) (string, error) {
 	name, args, _ := strings.Cut(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "/")), " ")
+	name, args = strings.ToLower(name), strings.TrimSpace(args)
 	for _, cmd := range commands {
-		if cmd.name != strings.ToLower(name) {
+		switch {
+		case cmd.name != name:
 			continue
+		case caller.phone:
+			return cmd.run(ctx, c, args)
+		case phoneOnly[name]:
+			return "", errPhone(name)
+		case !cmd.mutates || args == "":
+			return cmd.run(ctx, c, args)
+		case caller.owner:
+			return "", errPhone(name)
 		}
-		if cmd.mutates && !caller.owner {
-			code := c.ask(fmt.Sprintf("%s wants to run: /%s %s", caller.Session, cmd.name, args),
-				func(ctx context.Context, allow bool) string {
-					return c.runApproved(ctx, cmd, args, allow)
-				})
-			return fmt.Sprintf("waiting for the owner's approval in the self-chat (code %s)", code), nil
-		}
-		return cmd.run(ctx, c, strings.TrimSpace(args))
+		code := c.ask(fmt.Sprintf("%s wants to run: /%s %s", caller.Session, cmd.name, args),
+			func(ctx context.Context, allow bool) string {
+				return c.runApproved(ctx, cmd, args, allow)
+			})
+		return fmt.Sprintf("waiting for the owner's approval in the self-chat (code %s)", code), nil
 	}
 	return "", fmt.Errorf("unknown command /%s; send /help for the list", name)
 }
@@ -412,7 +434,7 @@ func (c *Core) startHome(ctx context.Context, harness string) error {
 		return nil // home gets its messages through its own WhatsAgent channel
 	}
 	go func() {
-		if err := c.serve(homeCtx, &subscriber{name: homeName, push: harness, pusher: pusher}); err != nil {
+		if err := c.serve(homeCtx, &subscriber{name: homeName, push: harness, pusher: pusher, verified: true}); err != nil {
 			c.say("Home stopped: " + err.Error())
 		}
 	}()

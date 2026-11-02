@@ -34,16 +34,16 @@ func TestAgentNameAndPrefix(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
-	if reply, _ := h.core.Run(ctx, Owner, "/name"); reply != "The agents are called Agent." {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/name"); reply != "The agents are called Agent." {
 		t.Errorf("/name = %q", reply)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/prefix"); !strings.HasSuffix(reply, "🤖 *Agent*: On it.") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/prefix"); !strings.HasSuffix(reply, "🤖 *Agent*: On it.") {
 		t.Errorf("/prefix = %q", reply)
 	}
-	if _, err := h.core.Run(ctx, Owner, "/name Bob\nSmith"); err == nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/name Bob\nSmith"); err == nil {
 		t.Error("a name on two lines gave no error")
 	}
-	if reply, err := h.core.Run(ctx, Owner, "/name Bob"); err != nil || !strings.Contains(reply, "now called Bob") {
+	if reply, err := h.core.Run(ctx, phoneOwner, "/name Bob"); err != nil || !strings.Contains(reply, "now called Bob") {
 		t.Fatalf("/name Bob = %q, %v", reply, err)
 	}
 	if s, _ := h.core.Status(ctx); s.AgentName != "Bob" {
@@ -62,7 +62,7 @@ func TestAgentNameAndPrefix(t *testing.T) {
 	h.expectText("from me")
 
 	// Any text works, with WhatsApp formatting, the session's name and a line break.
-	reply, _ := h.core.Run(ctx, Owner, `/prefix > *{name}* (_{session}_)\n`)
+	reply, _ := h.core.Run(ctx, phoneOwner, `/prefix > *{name}* (_{session}_)\n`)
 	if !strings.HasSuffix(reply, "> *Bob* (_billing_)\nOn it.") {
 		t.Errorf("/prefix with a line break = %q", reply)
 	}
@@ -75,7 +75,7 @@ func TestAgentNameAndPrefix(t *testing.T) {
 	_, _ = h.core.Send(ctx, Caller{Session: "bot"}, "Team", "routed")
 	h.expectText("[Bob/bot] routed")
 
-	_, _ = h.core.Run(ctx, Owner, "/prefix off")
+	_, _ = h.core.Run(ctx, phoneOwner, "/prefix off")
 	_, _ = h.core.Send(ctx, helper, "self", "plain")
 	h.expectText("plain")
 }
@@ -88,11 +88,11 @@ func TestBrowserSetting(t *testing.T) {
 		{"/browser", "does not open"},
 		{"/browser on", "it opens one"},
 	} {
-		if reply, err := h.core.Run(h.ctx, Owner, step.line); err != nil || !strings.Contains(reply, step.want) {
+		if reply, err := h.core.Run(h.ctx, phoneOwner, step.line); err != nil || !strings.Contains(reply, step.want) {
 			t.Errorf("%s = %q, %v", step.line, reply, err)
 		}
 	}
-	if _, err := h.core.Run(h.ctx, Owner, "/browser maybe"); err == nil {
+	if _, err := h.core.Run(h.ctx, phoneOwner, "/browser maybe"); err == nil {
 		t.Error("/browser maybe gave no error")
 	}
 }
@@ -100,18 +100,18 @@ func TestBrowserSetting(t *testing.T) {
 func TestAutoApproval(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
-	if reply, _ := h.core.Run(ctx, Owner, "/auto"); !strings.HasPrefix(reply, "Auto approval is on") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/auto"); !strings.HasPrefix(reply, "Auto approval is on") {
 		t.Errorf("/auto = %q", reply)
 	}
-	_, _ = h.core.Run(ctx, Owner, "/home claude")
+	_, _ = h.core.Run(ctx, phoneOwner, "/home claude")
 	h.core.OnChatName("g@g.us", "Team")
-	_, _ = h.core.Run(ctx, Owner, "/mode Team all")
+	_, _ = h.core.Run(ctx, phoneOwner, "/mode Team all")
 	h.receive("g@g.us", "hello", false)
 	agent := h.agent("chat-team")
 	if !agent.host.Auto {
 		t.Error("a chat agent started without auto approval")
 	}
-	if reply, err := h.core.Run(ctx, Owner, "/auto off"); err != nil || !strings.HasPrefix(reply, "Auto approval is off") {
+	if reply, err := h.core.Run(ctx, phoneOwner, "/auto off"); err != nil || !strings.HasPrefix(reply, "Auto approval is off") {
 		t.Fatalf("/auto off = %q, %v", reply, err)
 	}
 	if h.running("chat-team") {
@@ -133,7 +133,7 @@ func TestAutoApproval(t *testing.T) {
 	if agent.starts != 2 || agent.host.Auto {
 		t.Errorf("after /auto off: starts = %d, auto = %v", agent.starts, agent.host.Auto)
 	}
-	if _, err := h.core.Run(ctx, Owner, "/auto maybe"); err == nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/auto maybe"); err == nil {
 		t.Error("/auto maybe gave no error")
 	}
 }

@@ -78,6 +78,9 @@ func TestSessionLifecycle(t *testing.T) {
 	if list := h.List(); len(list) != 1 || list[0].Name != "one" || list[0].Title != "one title" || !list[0].Responding {
 		t.Errorf("List = %+v", list)
 	}
+	if h.PID("one") <= 0 || h.PID("none") != 0 {
+		t.Errorf("PID = %d, %d", h.PID("one"), h.PID("none"))
+	}
 	late := &collector{}
 	if _, ok := h.Attach("one", 0, 0, late.viewer()); !ok {
 		t.Fatal("a second viewer could not attach")

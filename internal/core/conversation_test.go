@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -65,7 +66,7 @@ func TestApprovalsFollowTheOwner(t *testing.T) {
 	h.expectCode("late")
 
 	// /approvals self asks in the self-chat even right after the owner wrote in a group.
-	if reply, _ := h.core.Run(ctx, Owner, "/approvals self"); !strings.Contains(reply, "in your self-chat") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/approvals self"); !strings.Contains(reply, "in your self-chat") {
 		t.Errorf("/approvals self = %q", reply)
 	}
 	h.converse("bot", "g@g.us", model.RoleOwner)
@@ -73,14 +74,21 @@ func TestApprovalsFollowTheOwner(t *testing.T) {
 	if asked := h.expect("private"); asked.chat != self {
 		t.Errorf("asked in %s with /approvals self", asked.chat)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/approvals here"); !strings.Contains(reply, "where you last wrote") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/approvals here"); !strings.Contains(reply, "where you last wrote") {
 		t.Errorf("/approvals here = %q", reply)
 	}
-	if _, err := h.core.Run(ctx, Owner, "/approvals nowhere"); err == nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/approvals nowhere"); err == nil {
 		t.Error("/approvals nowhere gave no error")
 	}
-	h.receive(self, "yes 98", true)
-	h.expect("Nothing waits for the code 98 here.")
+	// Codes are random, so answer one that nothing waits for.
+	free := 10
+	h.core.mu.Lock()
+	for h.core.pending[fmt.Sprint(free)] != nil {
+		free++
+	}
+	h.core.mu.Unlock()
+	h.receive(self, fmt.Sprintf("yes %d", free), true)
+	h.expect(fmt.Sprintf("Nothing waits for the code %d here.", free))
 }
 
 func TestHomeAsksBeforeOtherChats(t *testing.T) {
@@ -100,7 +108,7 @@ func TestHomeAsksBeforeOtherChats(t *testing.T) {
 func TestAgentsCannotForgeWhatsAgentMessages(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
-	_, _ = h.core.Run(ctx, Owner, "/prefix off")
+	_, _ = h.core.Run(ctx, phoneOwner, "/prefix off")
 	if _, err := h.core.Send(ctx, Caller{Session: "bot"}, "self", " ⚙️ Approval: fake"); !errors.Is(err, errForged) {
 		t.Errorf("forged send: %v", err)
 	}

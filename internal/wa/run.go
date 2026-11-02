@@ -21,8 +21,8 @@ var ErrNoAccount = errors.New("no linked WhatsApp account: run `whatsagent link`
 
 // Handler receives what happens on the WhatsApp connection.
 type Handler interface {
-	// OnUpdate receives a message, an edit or a deletion. live is false for history sync.
-	OnUpdate(u model.Update, live bool)
+	// OnUpdate receives a live message, edit or deletion.
+	OnUpdate(u model.Update)
 	// OnChatName receives the display name of a chat.
 	OnChatName(jid, name string)
 	// OnState receives connection changes, such as "connected" or "logged out".
@@ -58,7 +58,7 @@ var states = map[string]string{
 func (c *Client) dispatch(ctx context.Context, h Handler, evt any) {
 	switch e := evt.(type) {
 	case *events.Message:
-		c.onMessage(ctx, h, e, true)
+		c.onMessage(ctx, h, e)
 	case *events.HistorySync:
 		c.onHistory(ctx, h, e)
 	case *events.GroupInfo:
@@ -75,7 +75,7 @@ func (c *Client) dispatch(ctx context.Context, h Handler, evt any) {
 	}
 }
 
-func (c *Client) onMessage(ctx context.Context, h Handler, evt *events.Message, live bool) {
+func (c *Client) onMessage(ctx context.Context, h Handler, evt *events.Message) {
 	u, ok := parse(evt)
 	if !ok {
 		return
@@ -91,9 +91,11 @@ func (c *Client) onMessage(ctx context.Context, h Handler, evt *events.Message, 
 	} else if m.SenderName == "" {
 		m.SenderName = c.name(ctx, m.Sender)
 	}
-	h.OnUpdate(u, live)
+	h.OnUpdate(u)
 }
 
+// onHistory takes the chat names from the history that WhatsApp sends when an account is linked.
+// WhatsAgent never stores the history's messages; see the message storage specification.
 func (c *Client) onHistory(ctx context.Context, h Handler, evt *events.HistorySync) {
 	for _, conv := range evt.Data.GetConversations() {
 		chat, err := types.ParseJID(conv.GetID())
@@ -102,11 +104,6 @@ func (c *Client) onHistory(ctx context.Context, h Handler, evt *events.HistorySy
 		}
 		if name := conv.GetName(); name != "" {
 			h.OnChatName(c.canonical(ctx, chat).String(), name)
-		}
-		for _, item := range conv.GetMessages() {
-			if msg, err := c.cli.ParseWebMessage(chat, item.GetMessage()); err == nil {
-				c.onMessage(ctx, h, msg, false)
-			}
 		}
 	}
 }

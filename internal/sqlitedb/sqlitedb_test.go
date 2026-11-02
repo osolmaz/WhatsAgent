@@ -16,10 +16,12 @@ func TestOpenSettings(t *testing.T) {
 	defer db.Close()
 
 	checks := map[string]string{
-		"PRAGMA foreign_keys": "1",
-		"PRAGMA journal_mode": "wal",
-		"PRAGMA busy_timeout": "10000",
-		"PRAGMA synchronous":  "2",
+		"PRAGMA foreign_keys":  "1",
+		"PRAGMA journal_mode":  "wal",
+		"PRAGMA busy_timeout":  "10000",
+		"PRAGMA synchronous":   "2",
+		"PRAGMA secure_delete": "1",
+		"PRAGMA temp_store":    "2",
 	}
 	for query, want := range checks {
 		var got string
@@ -44,6 +46,37 @@ func TestOpenSettings(t *testing.T) {
 	}
 	if mode := folder.Mode().Perm(); mode != 0o700 {
 		t.Errorf("folder mode = %o, want 700", mode)
+	}
+}
+
+// TestOpenMemory checks that a memory database keeps its tables across queries, keeps temporary
+// storage in memory, and is separate from every other memory database.
+func TestOpenMemory(t *testing.T) {
+	db, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE t (v TEXT); INSERT INTO t VALUES ('x')"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		var v string
+		if err := db.QueryRow("SELECT v FROM t").Scan(&v); err != nil || v != "x" {
+			t.Fatalf("read %d = %q, %v", i, v, err)
+		}
+	}
+	var temp string
+	if err := db.QueryRow("PRAGMA temp_store").Scan(&temp); err != nil || temp != "2" {
+		t.Errorf("temp_store = %s, %v", temp, err)
+	}
+	other, err := OpenMemory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if _, err := other.Exec("SELECT v FROM t"); err == nil {
+		t.Error("a second memory database sees the first one's table")
 	}
 }
 
