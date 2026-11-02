@@ -105,6 +105,18 @@ func TestHomeAsksBeforeOtherChats(t *testing.T) {
 	}
 }
 
+// TestWait checks that Wait gives up after its timeout while a goroutine runs. The harness's
+// cleanup checks that Wait returns once the goroutines end.
+func TestWait(t *testing.T) {
+	h := newHarness(t)
+	block := make(chan struct{})
+	h.core.spawn(func() { <-block })
+	if h.core.Wait(20 * time.Millisecond) {
+		t.Error("Wait returned while a goroutine ran")
+	}
+	close(block)
+}
+
 func TestAgentsCannotForgeWhatsAgentMessages(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx

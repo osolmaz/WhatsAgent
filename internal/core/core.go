@@ -157,6 +157,9 @@ type Core struct {
 
 	sendMu   sync.Mutex
 	lastSend time.Time
+
+	// wg counts the goroutines that spawn started.
+	wg sync.WaitGroup
 }
 
 // New returns a core for cfg. Call Start before passing WhatsApp events to it.
@@ -204,13 +207,40 @@ func (c *Core) Start(ctx context.Context) {
 	if n, err := c.st.Purge(ctx); err != nil || n > 0 {
 		c.log.Info("deleted the stored messages of chats that are not kept", "messages", n, "err", err)
 	}
-	go c.runOutbox(ctx)
-	go c.runWindows(ctx)
-	go c.runPrune(ctx)
+	c.spawn(func() { c.runOutbox(ctx) })
+	c.spawn(func() { c.runWindows(ctx) })
+	c.spawn(func() { c.runPrune(ctx) })
 	if harness, _ := c.st.Setting(ctx, "home"); harness != "" {
 		if err := c.startHome(ctx, harness); err != nil {
 			c.log.Warn("start home", "harness", harness, "err", err)
 		}
+	}
+}
+
+// spawn runs fn in a goroutine that Wait waits for. Every goroutine of the core that can write to
+// the store starts this way.
+func (c *Core) spawn(fn func()) {
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		fn()
+	}()
+}
+
+// Wait waits at most timeout for the core's goroutines to end, and reports whether they did. Call
+// it after the context that Start got ends and before the store closes, so that no write reaches
+// a closed store.
+func (c *Core) Wait(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
 	}
 }
 

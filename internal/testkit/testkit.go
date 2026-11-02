@@ -190,8 +190,11 @@ func Start(t *testing.T, socket string) *Daemon {
 	server := &http.Server{Handler: api.NewServer(c, openPage), ReadHeaderTimeout: time.Second}
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {
-		cancel()
 		server.Close()
+		cancel()
+		if !c.Wait(5 * time.Second) {
+			t.Error("the core's goroutines did not end")
+		}
 		st.Close()
 	})
 	c.OnState("connected")

@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -277,5 +278,17 @@ func TestBuildAndDiscover(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatal("a detached thread did not end")
 		}
+	}
+
+	// waitForCore waits only once ctx has ended, and then both cores stop before the store closes.
+	var logged bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logged, nil))
+	waitForCore(context.Background(), c, log, 0)
+	cancel()
+	for _, k := range []*core.Core{c, core2} {
+		waitForCore(ctx, k, log, 5*time.Second)
+	}
+	if logged.Len() != 0 {
+		t.Errorf("waitForCore logged %q", logged.String())
 	}
 }

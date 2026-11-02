@@ -206,7 +206,7 @@ func (c *Core) openWindow(ctx context.Context, mode model.ChatMode) {
 		return
 	}
 	if !open {
-		go c.announce(w, mode, settingStart, defaultStart)
+		c.spawn(func() { c.announce(w, mode, settingStart, defaultStart) })
 	}
 }
 
@@ -230,7 +230,8 @@ func (c *Core) closeWindow(ctx context.Context, chat string) bool {
 	if closed, err := c.st.DeleteWindow(ctx, chat); err != nil || !closed {
 		return false
 	}
-	go c.announce(w, c.chatMode(ctx, chat), settingEnd, defaultEnd)
+	mode := c.chatMode(ctx, chat)
+	c.spawn(func() { c.announce(w, mode, settingEnd, defaultEnd) })
 	return true
 }
 
