@@ -192,6 +192,20 @@ func TestChannelSession(t *testing.T) {
 	if _, isErr := resultText(t, c.call("tools/call", map[string]any{"name": "send", "arguments": "bad"})); !isErr {
 		t.Error("bad send arguments gave no error")
 	}
+	// A new profile picture is read here too, and the owner's question shows it.
+	profile := map[string]any{"about": "away", "picture": "plan.pdf"}
+	if text, _ := resultText(t, c.call("tools/call", map[string]any{"name": "set_profile", "arguments": profile})); !strings.Contains(text, "waiting for the owner's yes") {
+		t.Errorf("set_profile = %q", text)
+	}
+	d.Expect("the picture to this photo")
+	for _, bad := range []any{map[string]any{"picture": "missing.png"}, "bad"} {
+		if _, isErr := resultText(t, c.call("tools/call", map[string]any{"name": "set_profile", "arguments": bad})); !isErr {
+			t.Errorf("set_profile(%v) gave no error", bad)
+		}
+	}
+	if text, _ := resultText(t, c.call("tools/call", map[string]any{"name": "set_profile", "arguments": map[string]any{"name": "Kan"}})); !strings.Contains(text, "waiting") {
+		t.Errorf("set_profile without a picture = %q", text)
+	}
 	if text, _ := resultText(t, c.call("tools/call", map[string]any{"name": "list_sessions"})); !strings.Contains(text, `"name":"dev"`) {
 		t.Errorf("list_sessions = %q", text)
 	}
@@ -312,7 +326,7 @@ func TestToolNames(t *testing.T) {
 			marked = append(marked, tool["name"].(string))
 		}
 	}
-	if got := strings.Join(marked, ","); got != "read_chat,search,list_sessions,list_chats" {
+	if got := strings.Join(marked, ","); got != "read_chat,search,group_info,find_contacts,contact_info,list_sessions,list_chats" {
 		t.Errorf("read-only tools = %s", got)
 	}
 }

@@ -69,16 +69,9 @@ func (c *Core) resolveChat(ctx context.Context, ref string) (string, error) {
 	case strings.EqualFold(ref, "self") || strings.EqualFold(ref, "me"):
 		return c.wa.SelfChat(), nil
 	case phonePattern.MatchString(ref):
-		return strings.Map(digitsOnly, ref) + "@s.whatsapp.net", nil
+		return model.Digits(ref) + "@s.whatsapp.net", nil
 	}
 	return c.chatByName(ctx, ref)
-}
-
-func digitsOnly(r rune) rune {
-	if r >= '0' && r <= '9' {
-		return r
-	}
-	return -1
 }
 
 func (c *Core) chatByName(ctx context.Context, ref string) (string, error) {

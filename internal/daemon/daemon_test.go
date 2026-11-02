@@ -192,6 +192,19 @@ func (fakeWA) React(context.Context, string, string, string, string) error { ret
 func (fakeWA) Download(context.Context, []byte) ([]byte, error)            { return nil, nil }
 func (fakeWA) ChatName(context.Context, string) string                     { return "" }
 func (fakeWA) Typing(context.Context, string) error                        { return nil }
+func (fakeWA) GroupInfo(context.Context, string) (model.Group, error)      { return model.Group{}, nil }
+func (fakeWA) CreateGroup(context.Context, string, []string) (string, error) {
+	return "", nil
+}
+func (fakeWA) ChangeGroup(context.Context, string, model.GroupChange) (string, error) {
+	return "", nil
+}
+func (fakeWA) JoinGroup(context.Context, string) (string, error)         { return "", nil }
+func (fakeWA) Contacts(context.Context, string) ([]model.Contact, error) { return nil, nil }
+func (fakeWA) ContactInfo(context.Context, string) (model.Contact, error) {
+	return model.Contact{}, nil
+}
+func (fakeWA) SetProfile(context.Context, model.Profile) error { return nil }
 func (fakeWA) MarkRead(context.Context, string, string, string, time.Time) error {
 	return nil
 }

@@ -351,8 +351,8 @@ func (s *Server) callTool(ctx context.Context, params json.RawMessage) map[strin
 	if len(p.Arguments) == 0 {
 		args = json.RawMessage("{}")
 	}
-	if p.Name == "send" {
-		if args, err = sendArgs(p.Arguments); err != nil {
+	if read := fileReaders[p.Name]; read != nil {
+		if args, err = read(p.Arguments); err != nil {
 			return toolError(err)
 		}
 	}
@@ -363,8 +363,31 @@ func (s *Server) callTool(ctx context.Context, params json.RawMessage) map[strin
 	return toolText(s.render(p.Name, raw))
 }
 
-// sendArgs turns the arguments of a send into the daemon's. The agent names a file by its path,
-// and this server reads it, in the agent's working folder.
+// fileReaders turn the arguments of the tools that take a file into the daemon's. The agent names
+// a file by its path, and this server reads it, in the agent's working folder.
+var fileReaders = map[string]func(raw json.RawMessage) (any, error){
+	"send":        func(raw json.RawMessage) (any, error) { return sendArgs(raw) },
+	"set_profile": profileArgs,
+}
+
+func profileArgs(raw json.RawMessage) (any, error) {
+	var a struct {
+		Name    string `json:"name"`
+		About   string `json:"about"`
+		Picture string `json:"picture"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return nil, err
+	}
+	p := model.Profile{Name: a.Name, About: a.About}
+	if a.Picture == "" {
+		return p, nil
+	}
+	picture, err := api.ReadFile(a.Picture)
+	p.Picture = picture
+	return p, err
+}
+
 func sendArgs(raw json.RawMessage) (api.SendArgs, error) {
 	var a struct {
 		Chat    string `json:"chat"`

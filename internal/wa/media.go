@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"image"
-	"image/draw"
+	"image/color"
 	"image/jpeg"
 	_ "image/png" // PNG photos get a preview as well.
 	"mime"
@@ -158,23 +158,57 @@ func imageDetails(data []byte, maxPixels int) (width, height *uint32, preview []
 	return width, height, scaledJPEG(img, previewSide)
 }
 
-// scaledJPEG scales img down so that its longer side is at most side pixels, picking the nearest
-// pixel, and encodes it as JPEG on white, since JPEG has no transparency.
+// scaledJPEG scales img down so that its longer side is at most side pixels, and encodes it as
+// JPEG.
 func scaledJPEG(img image.Image, side int) []byte {
 	b := img.Bounds()
 	longer := max(b.Dx(), b.Dy())
 	scale := min(side, longer)
-	w, h := max(1, b.Dx()*scale/longer), max(1, b.Dy()*scale/longer)
-	small := image.NewRGBA(image.Rect(0, 0, w, h))
+	return encodeJPEG(shrink(img, b, max(1, b.Dx()*scale/longer), max(1, b.Dy()*scale/longer)), 70)
+}
+
+// profilePicture turns a JPEG or PNG photo into a profile picture: its centered square, at most
+// 640 pixels wide, as JPEG.
+func profilePicture(data []byte) ([]byte, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("a profile picture must be a JPEG or PNG photo: %w", err)
+	}
+	b := img.Bounds()
+	side := min(b.Dx(), b.Dy())
+	square := image.Rect(0, 0, side, side).Add(b.Min).Add(image.Pt((b.Dx()-side)/2, (b.Dy()-side)/2))
+	out := min(side, 640)
+	return encodeJPEG(shrink(img, square, out, out), 90), nil
+}
+
+func encodeJPEG(img image.Image, quality int) []byte {
+	var buf bytes.Buffer
+	_ = jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality})
+	return buf.Bytes()
+}
+
+// samples is how many source pixels across and down shrink averages for each target pixel.
+const samples = 4
+
+// shrink scales the src part of img to w×h pixels on white, since JPEG has no transparency. Each
+// target pixel is the average of samples×samples source pixels spread evenly over its area, which
+// keeps the cost bounded for large photos.
+func shrink(img image.Image, src image.Rectangle, w, h int) *image.RGBA {
+	out := image.NewRGBA(image.Rect(0, 0, w, h))
 	for y := range h {
 		for x := range w {
-			small.Set(x, y, img.At(b.Min.X+x*b.Dx()/w, b.Min.Y+y*b.Dy()/h))
+			var r, g, b uint64
+			for i := range samples {
+				for j := range samples {
+					sx := src.Min.X + (x*samples+j)*src.Dx()/(w*samples)
+					sy := src.Min.Y + (y*samples+i)*src.Dy()/(h*samples)
+					cr, cg, cb, ca := img.At(sx, sy).RGBA()
+					r, g, b = r+uint64(cr+0xffff-ca), g+uint64(cg+0xffff-ca), b+uint64(cb+0xffff-ca)
+				}
+			}
+			n := uint64(samples * samples)
+			out.Set(x, y, color.RGBA64{R: uint16(r / n), G: uint16(g / n), B: uint16(b / n), A: 0xffff})
 		}
 	}
-	out := image.NewRGBA(small.Bounds())
-	draw.Draw(out, out.Bounds(), image.White, image.Point{}, draw.Src)
-	draw.Draw(out, out.Bounds(), small, image.Point{}, draw.Over)
-	var buf bytes.Buffer
-	_ = jpeg.Encode(&buf, out, &jpeg.Options{Quality: 70})
-	return buf.Bytes()
+	return out
 }

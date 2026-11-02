@@ -102,6 +102,28 @@ type LocationArgs struct {
 	Text string `json:"text,omitempty"`
 }
 
+// GroupArgs are the arguments of manage_group: the group and one change.
+type GroupArgs struct {
+	Chat string `json:"chat"`
+	model.GroupChange
+}
+
+// CreateGroupArgs are the arguments of create_group.
+type CreateGroupArgs struct {
+	Name    string   `json:"name"`
+	Members []string `json:"members"`
+}
+
+// LinkArgs are the arguments of join_group.
+type LinkArgs struct {
+	Link string `json:"link"`
+}
+
+// PersonArgs are the arguments of contact_info.
+type PersonArgs struct {
+	Person string `json:"person"`
+}
+
 // textTool defines a tool whose result is one line of text.
 func textTool[A any](fn func(ctx context.Context, c *core.Core, caller core.Caller, a A) (string, error)) tool {
 	return define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a A) (any, error) {
@@ -189,6 +211,27 @@ func tools() map[string]tool {
 		}),
 		"mark_read": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (string, error) {
 			return c.MarkRead(ctx, caller, a.Chat, a.MessageID)
+		}),
+		"group_info": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a ChatArgs) (any, error) {
+			return c.GroupInfo(ctx, caller, a.Chat)
+		}),
+		"manage_group": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a GroupArgs) (string, error) {
+			return c.ChangeGroup(ctx, caller, a.Chat, a.GroupChange)
+		}),
+		"create_group": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a CreateGroupArgs) (string, error) {
+			return c.CreateGroup(ctx, caller, a.Name, a.Members)
+		}),
+		"join_group": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a LinkArgs) (string, error) {
+			return c.JoinGroup(ctx, caller, a.Link)
+		}),
+		"find_contacts": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a QueryArgs) (any, error) {
+			return c.FindContacts(ctx, caller, a.Query, limit(a.Limit, 30))
+		}),
+		"contact_info": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a PersonArgs) (any, error) {
+			return c.ContactInfo(ctx, caller, a.Person)
+		}),
+		"set_profile": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a model.Profile) (string, error) {
+			return c.SetProfile(ctx, caller, a)
 		}),
 		"react": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (string, error) {
 			return c.React(ctx, caller, a.Chat, a.MessageID, a.Emoji)

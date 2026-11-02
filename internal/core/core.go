@@ -33,6 +33,15 @@ type WhatsApp interface {
 	// sent at sent, and the chat's earlier messages as read.
 	Typing(ctx context.Context, chat string) error
 	MarkRead(ctx context.Context, chat, sender, id string, sent time.Time) error
+	// Groups: what WhatsApp tells about one, and creating, changing and joining one.
+	GroupInfo(ctx context.Context, chat string) (model.Group, error)
+	CreateGroup(ctx context.Context, name string, members []string) (string, error)
+	ChangeGroup(ctx context.Context, chat string, change model.GroupChange) (string, error)
+	JoinGroup(ctx context.Context, link string) (string, error)
+	// People: the owner's address book, what WhatsApp shows of a person, and the owner's profile.
+	Contacts(ctx context.Context, query string) ([]model.Contact, error)
+	ContactInfo(ctx context.Context, person string) (model.Contact, error)
+	SetProfile(ctx context.Context, p model.Profile) error
 	Download(ctx context.Context, raw []byte) ([]byte, error)
 	ChatName(ctx context.Context, jid string) string
 }

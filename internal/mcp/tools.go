@@ -107,6 +107,58 @@ var toolList = []map[string]any{
 		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "message_id": str("The message ID.")}, "chat", "message_id"),
 	},
 	{
+		"name":        "group_info",
+		"description": "Show a WhatsApp group that you may read: name, description, settings and members with their admin role.",
+		"inputSchema": schema(map[string]any{"chat": str(chatHelp)}, "chat"),
+		"annotations": readOnly,
+	},
+	{
+		"name":        "manage_group",
+		"description": "Change a WhatsApp group. Every change waits for the owner's yes, and WhatsApp allows most of them only when the owner is a group admin. rename and describe take text; add, remove, promote and demote take members; announce (only admins write) and lock (only admins change the details) take on; invite_link, reset_invite_link and leave take nothing.",
+		"inputSchema": schema(map[string]any{
+			"chat": str(chatHelp),
+			"action": map[string]any{"type": "string", "enum": []string{"rename", "describe", "add", "remove", "promote", "demote",
+				"announce", "lock", "invite_link", "reset_invite_link", "leave"}},
+			"text":    str("The new name (up to 25 characters) or description."),
+			"members": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "People, by phone number or JID."},
+			"on":      map[string]any{"type": "boolean", "description": "Turn announce or lock on (true) or off (false)."},
+		}, "chat", "action"),
+	},
+	{
+		"name":        "create_group",
+		"description": "Create a WhatsApp group with the owner and the given people. It waits for the owner's yes.",
+		"inputSchema": schema(map[string]any{
+			"name":    str("The group's name, up to 25 characters."),
+			"members": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "People, by phone number or JID."},
+		}, "name", "members"),
+	},
+	{
+		"name":        "join_group",
+		"description": "Join a WhatsApp group by its invite link. It waits for the owner's yes.",
+		"inputSchema": schema(map[string]any{"link": str("The invite link, such as https://chat.whatsapp.com/AbCdEf.")}, "link"),
+	},
+	{
+		"name":        "find_contacts",
+		"description": "Find people in the owner's address book by name or number. A phone number in international form is also checked on WhatsApp. Only the owner's own sessions and home may use it.",
+		"inputSchema": schema(map[string]any{"query": str("Part of a name, or a phone number."), "limit": integer("How many people, default 30.")}, "query"),
+		"annotations": readOnly,
+	},
+	{
+		"name":        "contact_info",
+		"description": "Show what WhatsApp shows of a person: about text, business name and the address of the profile picture, as far as their privacy settings allow. Only the owner's own sessions and home may use it.",
+		"inputSchema": schema(map[string]any{"person": str("The person, by phone number or JID.")}, "person"),
+		"annotations": readOnly,
+	},
+	{
+		"name":        "set_profile",
+		"description": "Change the owner's WhatsApp profile: name, about text or picture. It waits for the owner's yes, which shows the new picture.",
+		"inputSchema": schema(map[string]any{
+			"name":    str("Optional new name."),
+			"about":   str("Optional new about text."),
+			"picture": str("Optional path of a JPEG or PNG photo; WhatsAgent uses its centered square."),
+		}),
+	},
+	{
 		"name":        "react",
 		"description": "React to a WhatsApp message with an emoji. An empty emoji removes the reaction.",
 		"inputSchema": schema(map[string]any{

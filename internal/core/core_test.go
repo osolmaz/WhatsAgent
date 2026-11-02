@@ -56,6 +56,38 @@ func (f *fakeWA) Edit(_ context.Context, chat, id, text string) error {
 	return nil
 }
 
+func (f *fakeWA) GroupInfo(_ context.Context, chat string) (model.Group, error) {
+	return model.Group{JID: chat, Name: "Team"}, nil
+}
+
+func (f *fakeWA) CreateGroup(_ context.Context, name string, members []string) (string, error) {
+	f.sent <- sentText{text: name + " " + strings.Join(members, ","), kind: "create"}
+	return "new@g.us", nil
+}
+
+func (f *fakeWA) ChangeGroup(_ context.Context, chat string, change model.GroupChange) (string, error) {
+	f.sent <- sentText{chat: chat, text: change.Text + strings.Join(change.Members, ","), kind: change.Action}
+	return change.Action + " done", nil
+}
+
+func (f *fakeWA) JoinGroup(_ context.Context, link string) (string, error) {
+	f.sent <- sentText{text: link, kind: "join"}
+	return "joined@g.us", nil
+}
+
+func (f *fakeWA) Contacts(_ context.Context, query string) ([]model.Contact, error) {
+	return []model.Contact{{JID: "1@s.whatsapp.net", Name: query + " 1"}, {JID: "2@s.whatsapp.net", Name: query + " 2"}}, nil
+}
+
+func (f *fakeWA) ContactInfo(_ context.Context, person string) (model.Contact, error) {
+	return model.Contact{JID: person, About: "busy"}, nil
+}
+
+func (f *fakeWA) SetProfile(_ context.Context, p model.Profile) error {
+	f.sent <- sentText{text: p.Name + "|" + p.About, kind: "profile"}
+	return nil
+}
+
 func (f *fakeWA) Typing(_ context.Context, chat string) error {
 	f.sent <- sentText{chat: chat, kind: "typing"}
 	return nil
