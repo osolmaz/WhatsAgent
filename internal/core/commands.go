@@ -84,8 +84,12 @@ func parseCommand(line string) (string, string) {
 }
 
 // errPhone says that a command runs only from the phone.
-func errPhone(name string) error {
-	return fmt.Errorf("%w: /%s with these arguments runs only from the self-chat on your phone", ErrNotAllowed, name)
+func errPhone(name, args string) error {
+	what := "/" + name
+	if args != "" {
+		what += " with arguments"
+	}
+	return fmt.Errorf("%w: %s runs only from the self-chat on your phone", ErrNotAllowed, what)
 }
 
 // Run runs a command line such as "/route Sam billing" for caller. A command that changes state,
@@ -101,11 +105,11 @@ func (c *Core) Run(ctx context.Context, caller Caller, line string) (string, err
 		case caller.phone:
 			return cmd.run(ctx, c, args)
 		case phoneOnly[name]:
-			return "", errPhone(name)
+			return "", errPhone(name, args)
 		case !cmd.mutates || args == "":
 			return cmd.run(ctx, c, args)
 		case caller.owner:
-			return "", errPhone(name)
+			return "", errPhone(name, args)
 		}
 		code := c.ask(fmt.Sprintf("%s wants to run: /%s %s", caller.Session, cmd.name, args),
 			func(ctx context.Context, allow bool) string {
