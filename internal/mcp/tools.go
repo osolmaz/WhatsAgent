@@ -75,6 +75,38 @@ var toolList = []map[string]any{
 		}, "chat", "message_id", "to"),
 	},
 	{
+		"name":        "send_poll",
+		"description": "Send a WhatsApp poll to a chat. WhatsAgent puts the agent prefix in front of the question. Each vote arrives as a message that answers the poll and names the options that the voter picked; a later vote of the same person replaces the earlier one. The send rules apply as for send.",
+		"inputSchema": schema(map[string]any{
+			"chat":     str(chatHelp),
+			"question": str("The question."),
+			"options":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 2, "maxItems": 12, "description": "2 to 12 different options."},
+			"multiple": map[string]any{"type": "boolean", "description": "Let each voter pick any number of options; by default a voter picks one."},
+		}, "chat", "question", "options"),
+	},
+	{
+		"name":        "send_location",
+		"description": "Send a place on the map to a chat. WhatsApp shows no text with a location, so the text, with the agent prefix, goes first as a message of its own. The send rules apply as for send.",
+		"inputSchema": schema(map[string]any{
+			"chat":      str(chatHelp),
+			"latitude":  map[string]any{"type": "number", "description": "Degrees north, -90 to 90."},
+			"longitude": map[string]any{"type": "number", "description": "Degrees east, -180 to 180."},
+			"name":      str("Optional name of the place."),
+			"address":   str("Optional address of the place."),
+			"text":      str("Optional text that goes before the location."),
+		}, "chat", "latitude", "longitude"),
+	},
+	{
+		"name":        "typing",
+		"description": "Show the owner as typing in a chat for a few seconds, while you prepare an answer that takes a while. It works only in a chat where you may answer at once, and WhatsApp ends it when your message arrives.",
+		"inputSchema": schema(map[string]any{"chat": str(chatHelp)}, "chat"),
+	},
+	{
+		"name":        "mark_read",
+		"description": "Mark a message, and the chat's earlier messages, as read: the owner's phone shows them as read and the sender sees blue ticks. The send rules apply as for send.",
+		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "message_id": str("The message ID.")}, "chat", "message_id"),
+	},
+	{
 		"name":        "react",
 		"description": "React to a WhatsApp message with an emoji. An empty emoji removes the reaction.",
 		"inputSchema": schema(map[string]any{

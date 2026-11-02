@@ -124,6 +124,9 @@ func TestOwnerCommands(t *testing.T) {
 		{"edit", "--chat", "g@g.us", "--id", answer.ID, "--text", "at 6"},
 		{"forward", "--chat", "g@g.us", "--id", answer.ID, "--to", "self"},
 		{"delete", "--chat", "g@g.us", "--id", answer.ID},
+		{"poll", "--to", "g@g.us", "--question", "Lunch?", "--option", "Pizza", "--option", "Sushi", "--multiple"},
+		{"location", "--to", "g@g.us", "--lat", "52.52", "--lng", "13.405", "--name", "Berlin"},
+		{"read", "--chat", "g@g.us", "--id", question.ID},
 	} {
 		if out, err := runCtx(context.Background(), env, "", args...); err != nil || out == "" {
 			t.Errorf("%s = %q, %v", args[0], out, err)

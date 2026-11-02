@@ -87,6 +87,21 @@ func ReadFile(path string) (*model.File, error) {
 	return &model.File{Name: filepath.Base(path), Data: data}, err
 }
 
+// PollArgs are the arguments of send_poll.
+type PollArgs struct {
+	Chat     string   `json:"chat"`
+	Question string   `json:"question"`
+	Options  []string `json:"options"`
+	Multiple bool     `json:"multiple,omitempty"`
+}
+
+// LocationArgs are the arguments of send_location: the place, and text that goes before it.
+type LocationArgs struct {
+	Chat string `json:"chat"`
+	model.Location
+	Text string `json:"text,omitempty"`
+}
+
 // textTool defines a tool whose result is one line of text.
 func textTool[A any](fn func(ctx context.Context, c *core.Core, caller core.Caller, a A) (string, error)) tool {
 	return define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a A) (any, error) {
@@ -162,6 +177,18 @@ func tools() map[string]tool {
 		}),
 		"forward_message": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a ForwardArgs) (string, error) {
 			return c.Forward(ctx, caller, a.Chat, a.MessageID, a.To, a.Text)
+		}),
+		"send_poll": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a PollArgs) (string, error) {
+			return c.SendPoll(ctx, caller, a.Chat, model.Poll{Question: a.Question, Options: a.Options, Multiple: a.Multiple})
+		}),
+		"send_location": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a LocationArgs) (string, error) {
+			return c.SendLocation(ctx, caller, a.Chat, a.Location, a.Text)
+		}),
+		"typing": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a ChatArgs) (string, error) {
+			return c.Typing(ctx, caller, a.Chat)
+		}),
+		"mark_read": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (string, error) {
+			return c.MarkRead(ctx, caller, a.Chat, a.MessageID)
 		}),
 		"react": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (string, error) {
 			return c.React(ctx, caller, a.Chat, a.MessageID, a.Emoji)

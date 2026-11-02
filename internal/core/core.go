@@ -29,6 +29,10 @@ type WhatsApp interface {
 	Edit(ctx context.Context, chat, id, text string) error
 	Revoke(ctx context.Context, chat, sender, id string) error
 	React(ctx context.Context, chat, sender, id, emoji string) error
+	// Typing shows the owner as typing in chat, and MarkRead marks the message id from sender,
+	// sent at sent, and the chat's earlier messages as read.
+	Typing(ctx context.Context, chat string) error
+	MarkRead(ctx context.Context, chat, sender, id string, sent time.Time) error
 	Download(ctx context.Context, raw []byte) ([]byte, error)
 	ChatName(ctx context.Context, jid string) string
 }
@@ -324,15 +328,15 @@ func (c *Core) send(ctx context.Context, chat string, out model.Outgoing, store 
 	return id, nil
 }
 
-// sendCaption sends the caption of media that WhatsApp shows without one, such as audio, as a
-// message of its own before the media, as the answer and with the mentions. It returns what is
-// left to send.
+// sendCaption sends the text of a message that WhatsApp shows without one, such as audio or a
+// location, as a message of its own first, as the answer and with the mentions. It returns what
+// is left to send.
 func (c *Core) sendCaption(ctx context.Context, chat string, out model.Outgoing, store bool) (model.Outgoing, error) {
-	if out.Media == nil || out.Media.Captioned() || out.Text == "" {
+	if out.Captioned() || out.Text == "" {
 		return out, nil
 	}
 	_, err := c.send(ctx, chat, model.Outgoing{Text: out.Text, ReplyTo: out.ReplyTo, Mentions: out.Mentions}, store)
-	return model.Outgoing{Media: out.Media}, err
+	return model.Outgoing{Media: out.Media, Location: out.Location}, err
 }
 
 // storeSent stores a message that WhatsAgent sent. A stored file keeps its encoded message, so
@@ -340,13 +344,16 @@ func (c *Core) sendCaption(ctx context.Context, chat string, out model.Outgoing,
 func (c *Core) storeSent(ctx context.Context, sent model.Message, out model.Outgoing) {
 	sent.Sender, sent.SenderName, sent.FromMe, sent.Role = c.wa.SelfChat(), c.wa.OwnName(), true, model.RoleAgent
 	sent.Text = out.Text
-	media := out.Media
-	if f := out.Forward; f != nil {
-		sent.Text, sent.Forwarded = f.Text, true
-		media = &model.Media{Type: f.MediaType, MimeType: f.MimeType, Filename: f.Filename, Raw: f.Raw}
-	}
-	if media != nil {
+	if media := sentMedia(out); media != nil {
 		sent.MediaType, sent.MimeType, sent.Filename, sent.Raw = media.Type, media.MimeType, media.Filename, media.Raw
+	}
+	switch {
+	case out.Forward != nil:
+		sent.Text, sent.Forwarded = out.Forward.Text, true
+	case out.Poll != nil:
+		sent.Text = out.Poll.Text()
+	case out.Location != nil:
+		sent.Text = strings.TrimSpace(out.Location.Name + " " + out.Location.Address)
 	}
 	if r := out.ReplyTo; r != nil {
 		sent.ReplyTo, sent.Quote = r.ID, r.Body()
@@ -354,6 +361,21 @@ func (c *Core) storeSent(ctx context.Context, sent model.Message, out model.Outg
 	if _, err := c.st.Apply(ctx, model.Update{Kind: model.New, Message: sent}); err != nil {
 		c.log.Warn("store sent message", "err", err)
 	}
+}
+
+// sentMedia returns what a sent message carries besides text, as stored media details: the file,
+// the forwarded message's media, a poll or a location.
+func sentMedia(out model.Outgoing) *model.Media {
+	switch {
+	case out.Forward != nil:
+		f := out.Forward
+		return &model.Media{Type: f.MediaType, MimeType: f.MimeType, Filename: f.Filename, Raw: f.Raw}
+	case out.Poll != nil:
+		return &model.Media{Type: "poll"}
+	case out.Location != nil:
+		return &model.Media{Type: "location"}
+	}
+	return out.Media
 }
 
 // waitGap waits until SendGap has passed since the last send. The caller holds c.sendMu.
@@ -424,6 +446,9 @@ func (c *Core) OnUpdate(u model.Update) {
 // message is stored, so no session sees the message under the window that the message changes.
 func (c *Core) prepare(ctx context.Context, m model.Message) model.Message {
 	m.Role = c.role(ctx, m)
+	if m.PollVote != nil {
+		m = c.nameVote(ctx, m)
+	}
 	c.fillChatName(ctx, m)
 	c.runTrigger(ctx, m)
 	return m

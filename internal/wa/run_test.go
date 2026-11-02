@@ -130,6 +130,36 @@ func TestParse(t *testing.T) {
 			t.Errorf("%s = %+v", kind, u.Message)
 		}
 	}
+	// Every poll version shows its options, which name the options of later votes.
+	options := []*waE2E.PollCreationMessage_Option{{OptionName: proto.String("Pizza")}, {OptionName: proto.String("Sushi")}}
+	for _, msg := range []*waE2E.Message{
+		{PollCreationMessage: &waE2E.PollCreationMessage{Name: proto.String("Lunch?"), Options: options}},
+		{PollCreationMessageV6: &waE2E.PollCreationMessage{Name: proto.String("Lunch?"), Options: options}},
+	} {
+		if u, _ := parse(message(t, "1@g.us", "2@s.whatsapp.net", msg)); u.Message.Text != "Lunch?\n○ Pizza\n○ Sushi" {
+			t.Errorf("poll text = %q", u.Message.Text)
+		}
+	}
+}
+
+func TestPollVote(t *testing.T) {
+	vote := message(t, "1@g.us", "2@s.whatsapp.net", &waE2E.Message{PollUpdateMessage: &waE2E.PollUpdateMessage{
+		PollCreationMessageKey: &waCommon.MessageKey{ID: proto.String("POLL")}, Vote: &waE2E.PollEncValue{}}})
+	u := voteUpdate(vote, &waE2E.PollVoteMessage{SelectedOptions: [][]byte{{0xab, 0xcd}}})
+	if m := u.Message; m.MediaType != "poll vote" || m.ReplyTo != "POLL" || len(m.PollVote) != 1 || m.PollVote[0] != "abcd" {
+		t.Errorf("vote = %+v", m)
+	}
+	if withdrawn := voteUpdate(vote, &waE2E.PollVoteMessage{}); withdrawn.Message.PollVote == nil {
+		t.Error("a vote that picks nothing is not a vote")
+	}
+	c := linked(t)
+	// whatsmeow keeps no secret for this poll, so the vote does not decrypt and is dropped.
+	if _, ok := c.pollVote(context.Background(), vote); ok {
+		t.Error("an undecryptable vote was passed on")
+	}
+	if _, ok := c.pollVote(context.Background(), message(t, "1@g.us", "2@s.whatsapp.net", &waE2E.Message{})); ok {
+		t.Error("a message that is no vote was passed on")
+	}
 }
 
 func TestDispatch(t *testing.T) {
@@ -214,7 +244,17 @@ func TestSendWithoutConnection(t *testing.T) {
 	if err := c.Revoke(ctx, "1@g.us", "2@s.whatsapp.net", "ID"); err == nil {
 		t.Error("Revoke without a connection gave no error")
 	}
-	for _, err := range []error{c.Edit(ctx, "bad", "ID", "x"), c.Revoke(ctx, "bad", "", "ID"), c.Revoke(ctx, "1@g.us", "bad", "ID")} {
+	if err := c.Typing(ctx, "1@g.us"); err == nil {
+		t.Error("Typing without a connection gave no error")
+	}
+	if err := c.MarkRead(ctx, "1@g.us", "2@s.whatsapp.net", "ID", time.Now()); err == nil {
+		t.Error("MarkRead without a connection gave no error")
+	}
+	if err := c.MarkRead(ctx, "2@s.whatsapp.net", "", "ID", time.Now()); err == nil {
+		t.Error("MarkRead in a direct chat without a connection gave no error")
+	}
+	for _, err := range []error{c.Edit(ctx, "bad", "ID", "x"), c.Revoke(ctx, "bad", "", "ID"), c.Revoke(ctx, "1@g.us", "bad", "ID"),
+		c.Typing(ctx, "bad"), c.MarkRead(ctx, "bad", "", "ID", time.Now()), c.MarkRead(ctx, "1@g.us", "bad", "ID", time.Now())} {
 		if err == nil {
 			t.Error("a bad address gave no error")
 		}

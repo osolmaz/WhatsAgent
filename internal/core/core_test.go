@@ -56,6 +56,16 @@ func (f *fakeWA) Edit(_ context.Context, chat, id, text string) error {
 	return nil
 }
 
+func (f *fakeWA) Typing(_ context.Context, chat string) error {
+	f.sent <- sentText{chat: chat, kind: "typing"}
+	return nil
+}
+
+func (f *fakeWA) MarkRead(_ context.Context, chat, sender, id string, _ time.Time) error {
+	f.sent <- sentText{chat: chat, id: id, text: sender, kind: "read"}
+	return nil
+}
+
 func (f *fakeWA) Revoke(_ context.Context, chat, sender, id string) error {
 	f.sent <- sentText{chat: chat, id: id, text: sender, kind: "revoke"}
 	return nil

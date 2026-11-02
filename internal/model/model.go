@@ -59,6 +59,9 @@ type Message struct {
 	RawSender string `json:"-"`
 	// Raw is the encoded message, which media downloads need.
 	Raw []byte `json:"-"`
+	// PollVote holds the SHA-256 hashes, in hex, of the options that a vote picks, until the core
+	// turns them into the options' names. A vote's ReplyTo is the poll.
+	PollVote []string `json:"-"`
 }
 
 // MaxFileSize is the largest file that WhatsAgent sends, in bytes. The daemon holds a file in
@@ -99,8 +102,8 @@ func (m Media) Describe() string {
 	return fmt.Sprintf("%s %s (%s)", noun, m.Filename, SizeLabel(m.Size))
 }
 
-// Outgoing is one message that WhatsAgent sends: text, media with the text as its caption, or a
-// forwarded message.
+// Outgoing is one message that WhatsAgent sends: text, media with the text as its caption, a poll,
+// a location, or a forwarded message.
 type Outgoing struct {
 	Text  string
 	Media *Media
@@ -110,6 +113,51 @@ type Outgoing struct {
 	Mentions []string
 	// Forward is a stored message to forward. Text and Media stay empty then.
 	Forward *Message
+	// Poll is a poll to send; Text stays empty, because the question carries the words.
+	Poll *Poll
+	// Location is a place to send.
+	Location *Location
+}
+
+// Captioned reports whether the message shows Text with its content. Audio and locations show
+// none, so their text goes out as a message of its own.
+func (o Outgoing) Captioned() bool {
+	if o.Location != nil {
+		return false
+	}
+	return o.Media == nil || o.Media.Captioned()
+}
+
+// Poll is a WhatsApp poll.
+type Poll struct {
+	Question string
+	Options  []string
+	// Multiple lets each voter pick any number of options, and not only one.
+	Multiple bool
+}
+
+// Text writes a poll as WhatsAgent stores it: the question, then one line per option.
+func (p Poll) Text() string {
+	return p.Question + "\n○ " + strings.Join(p.Options, "\n○ ")
+}
+
+// PollOptions returns the options of a poll that WhatsAgent stored as Poll.Text writes it.
+func PollOptions(text string) []string {
+	var options []string
+	for line := range strings.Lines(text) {
+		if option, ok := strings.CutPrefix(strings.TrimRight(line, "\n"), "○ "); ok {
+			options = append(options, option)
+		}
+	}
+	return options
+}
+
+// Location is a place on the map.
+type Location struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+	Name      string  `json:"name,omitempty"`
+	Address   string  `json:"address,omitempty"`
 }
 
 // MentionsIn returns the JIDs of the people that text mentions as @ and a phone number, which

@@ -77,6 +77,9 @@ func (c *Client) dispatch(ctx context.Context, h Handler, evt any) {
 func (c *Client) onMessage(ctx context.Context, h Handler, evt *events.Message) {
 	u, ok := parse(evt)
 	if !ok {
+		u, ok = c.pollVote(ctx, evt)
+	}
+	if !ok {
 		return
 	}
 	m := &u.Message
@@ -91,6 +94,19 @@ func (c *Client) onMessage(ctx context.Context, h Handler, evt *events.Message) 
 		m.SenderName = c.name(ctx, m.Sender)
 	}
 	h.OnUpdate(u)
+}
+
+// pollVote decrypts a vote on a poll. It reports false for a message that is no vote, and for a
+// vote that whatsmeow cannot decrypt, because the poll came before WhatsAgent linked.
+func (c *Client) pollVote(ctx context.Context, evt *events.Message) (model.Update, bool) {
+	if evt.Message.GetPollUpdateMessage() == nil {
+		return model.Update{}, false
+	}
+	vote, err := c.cli.DecryptPollVote(ctx, evt)
+	if err != nil {
+		return model.Update{}, false
+	}
+	return voteUpdate(evt, vote), true
 }
 
 // onHistory takes the chat names from the history that WhatsApp sends when an account is linked.

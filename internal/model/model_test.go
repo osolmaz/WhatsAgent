@@ -26,6 +26,30 @@ func TestMediaDescriptions(t *testing.T) {
 	}
 }
 
+func TestPollsAndCaptions(t *testing.T) {
+	p := Poll{Question: "Lunch?", Options: []string{"Pizza", "○ Sushi"}}
+	if p.Text() != "Lunch?\n○ Pizza\n○ ○ Sushi" {
+		t.Errorf("Text() = %q", p.Text())
+	}
+	if got := PollOptions(p.Text()); len(got) != 2 || got[0] != "Pizza" || got[1] != "○ Sushi" {
+		t.Errorf("PollOptions = %q", got)
+	}
+	for out, want := range map[*Outgoing]bool{
+		{Text: "hi"}:                                 true,
+		{Media: &Media{Type: "image"}}:               true,
+		{Media: &Media{Type: "audio"}}:               false,
+		{Location: &Location{Latitude: 1}}:           false,
+		{Poll: &Poll{Question: "?"}, Text: "unused"}: true,
+	} {
+		if out.Captioned() != want {
+			t.Errorf("Captioned(%+v) = %v", *out, !want)
+		}
+	}
+	if got := MentionsIn("hi @15551234567 and @15551234567, mail a@b.c"); len(got) != 1 || got[0] != "15551234567@s.whatsapp.net" {
+		t.Errorf("MentionsIn = %q", got)
+	}
+}
+
 func TestDecide(t *testing.T) {
 	rules := []Rule{
 		{Session: "*", Chat: "*", Permission: Deny},
