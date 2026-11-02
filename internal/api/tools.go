@@ -4,9 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/osolmaz/WhatsAgent/internal/core"
+	"github.com/osolmaz/WhatsAgent/internal/model"
 )
 
 // tool is one API tool: a core call with JSON arguments.
@@ -40,10 +43,39 @@ type SearchArgs struct {
 	Limit int    `json:"limit,omitempty"`
 }
 
-// SendArgs are the arguments of send.
+// SendArgs are the arguments of send. With a file, the text is the file's caption.
 type SendArgs struct {
-	Chat string `json:"chat"`
-	Text string `json:"text"`
+	Chat string      `json:"chat"`
+	Text string      `json:"text"`
+	File *model.File `json:"file,omitempty"`
+}
+
+// ReadFile reads a file to send. The CLI and the WhatsAgent MCP server read it themselves, in the
+// caller's working folder and with the caller's view of the disk, so the daemon never opens a
+// path that a session names.
+func ReadFile(path string) (*model.File, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a file", path)
+	}
+	if info.Size() > model.MaxFileSize {
+		return nil, fmt.Errorf("%s has %s; WhatsAgent sends files up to %s", path, model.SizeLabel(int(info.Size())),
+			model.SizeLabel(model.MaxFileSize))
+	}
+	data, err := os.ReadFile(path)
+	return &model.File{Name: filepath.Base(path), Data: data}, err
+}
+
+func send(ctx context.Context, c *core.Core, caller core.Caller, a SendArgs) (any, error) {
+	if a.File != nil {
+		text, err := c.SendFile(ctx, caller, a.Chat, a.Text, *a.File)
+		return Text{text}, err
+	}
+	text, err := c.Send(ctx, caller, a.Chat, a.Text)
+	return Text{text}, err
 }
 
 // MessageArgs name one message, with an emoji for react.
@@ -102,10 +134,7 @@ func tools() map[string]tool {
 		"search": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a SearchArgs) (any, error) {
 			return c.Search(ctx, caller, a.Query, a.Chat, limit(a.Limit, 30))
 		}),
-		"send": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a SendArgs) (any, error) {
-			text, err := c.Send(ctx, caller, a.Chat, a.Text)
-			return Text{text}, err
-		}),
+		"send": define(false, send),
 		"react": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (any, error) {
 			text, err := c.React(ctx, caller, a.Chat, a.MessageID, a.Emoji)
 			return Text{text}, err

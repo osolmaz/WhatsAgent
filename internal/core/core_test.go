@@ -18,14 +18,38 @@ import (
 
 const self = "100@s.whatsapp.net"
 
-type sentText struct{ chat, id, text string }
+// sentText is one sent message; file names the file of a media message, whose caption is text.
+type sentText struct{ chat, id, text, file string }
 
 type fakeWA struct {
-	mu       sync.Mutex
-	n        int
-	sent     chan sentText
-	reacts   []string
-	failSend error
+	mu         sync.Mutex
+	n          int
+	sent       chan sentText
+	reacts     []string
+	failSend   error
+	uploads    int
+	failUpload error
+}
+
+// Upload makes an .ogg file audio, a .png file a photo and every other file a document.
+func (f *fakeWA) Upload(_ context.Context, file model.File) (model.Media, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failUpload != nil {
+		return model.Media{}, f.failUpload
+	}
+	f.uploads++
+	kind := map[string]string{".ogg": "audio", ".png": "image"}[filepath.Ext(file.Name)]
+	if kind == "" {
+		kind = "document"
+	}
+	return model.Media{Type: kind, MimeType: "x/" + kind, Filename: file.Name, Size: len(file.Data),
+		Raw: []byte("raw " + file.Name)}, nil
+}
+
+func (f *fakeWA) SendMedia(_ context.Context, chat, id string, media model.Media, caption string) error {
+	f.sent <- sentText{chat: chat, id: id, text: caption, file: media.Filename}
+	return nil
 }
 
 func (f *fakeWA) SelfChat() string { return self }
@@ -43,7 +67,7 @@ func (f *fakeWA) SendText(_ context.Context, chat, id, text string) error {
 	if err != nil {
 		return err
 	}
-	f.sent <- sentText{chat, id, text}
+	f.sent <- sentText{chat: chat, id: id, text: text}
 	return nil
 }
 func (f *fakeWA) React(_ context.Context, chat, sender, id, emoji string) error {

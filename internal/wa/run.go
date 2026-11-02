@@ -180,12 +180,16 @@ func parseChat(chat string) (types.JID, error) {
 
 // SendText sends a text message with the given ID.
 func (c *Client) SendText(ctx context.Context, chat, id, text string) error {
+	return c.sendAs(ctx, chat, id, &waE2E.Message{Conversation: proto.String(text)})
+}
+
+// sendAs sends msg to chat under the message ID id.
+func (c *Client) sendAs(ctx context.Context, chat, id string, msg *waE2E.Message) error {
 	to, err := parseChat(chat)
 	if err != nil {
 		return err
 	}
-	_, err = c.cli.SendMessage(ctx, to, &waE2E.Message{Conversation: proto.String(text)},
-		whatsmeow.SendRequestExtra{ID: id})
+	_, err = c.cli.SendMessage(ctx, to, msg, whatsmeow.SendRequestExtra{ID: id})
 	return err
 }
 

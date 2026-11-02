@@ -114,34 +114,48 @@ func newCommand(env paths.Env) *cobra.Command {
 }
 
 func newSend(env paths.Env) *cobra.Command {
-	var to, text, session string
+	var to, text, file, session string
 	cmd := &cobra.Command{
-		Use:   "send --to <chat> [--text <text>] [--session <name>]",
-		Short: "Send a message as the owner, or for an agent session with --session",
-		Long: "Send a message; the text comes from --text or standard input. Without --session it goes out\n" +
-			"exactly as written. With --session it is an agent's message, and WhatsAgent puts the agent\n" +
-			"prefix (see /prefix) in front, so the agent writes only the message. The CLI keeps the\n" +
-			"owner's rights either way, so the send rules do not apply.",
+		Use:   "send --to <chat> [--text <text>] [--file <path>] [--session <name>]",
+		Short: "Send a message or a file as the owner, or for an agent session with --session",
+		Long: "Send a message; the text comes from --text or, without --file, from standard input. With\n" +
+			"--file, WhatsAgent sends the file with the text as its caption: JPEG and PNG as photos, MP4 as\n" +
+			"a video, Ogg/Opus as a voice message, MP3, M4A and AAC as audio, and other files as documents.\n" +
+			"Without --session it goes out exactly as written. With --session it is an agent's message,\n" +
+			"and WhatsAgent puts the agent prefix (see /prefix) in front, so the agent writes only the\n" +
+			"message. The CLI keeps the owner's rights either way, so the send rules do not apply.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if text == "" {
-				data, err := io.ReadAll(cmd.InOrStdin())
-				if err != nil {
-					return err
-				}
-				text = strings.TrimRight(string(data), "\n")
+			args, err := sendInput(cmd.InOrStdin(), to, text, file)
+			if err != nil {
+				return err
 			}
-			if strings.TrimSpace(text) == "" {
-				return fmt.Errorf("no text to send")
-			}
-			return printAgentText(cmd, env, session, "send", api.SendArgs{Chat: to, Text: text})
+			return printAgentText(cmd, env, session, "send", args)
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "the chat: a JID, a phone number, \"self\" or part of its name")
-	cmd.Flags().StringVar(&text, "text", "", "the message text")
+	cmd.Flags().StringVar(&text, "text", "", "the message text, or the caption of the file")
+	cmd.Flags().StringVar(&file, "file", "", "a file to send, up to 100 MB")
 	cmd.Flags().StringVar(&session, "session", "", "send as this agent session, with the agent prefix")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
+}
+
+// sendInput builds the arguments of a send: the file at path when path is set, and the text
+// from stdin when neither the text nor a file is given.
+func sendInput(stdin io.Reader, to, text, path string) (api.SendArgs, error) {
+	args := api.SendArgs{Chat: to, Text: text}
+	if path != "" {
+		file, err := api.ReadFile(path)
+		args.File = file
+		return args, err
+	}
+	if text != "" {
+		return args, nil
+	}
+	data, err := io.ReadAll(stdin)
+	args.Text = strings.TrimRight(string(data), "\n")
+	return args, err
 }
 
 func newReact(env paths.Env) *cobra.Command {

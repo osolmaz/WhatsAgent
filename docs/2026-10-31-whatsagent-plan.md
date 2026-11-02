@@ -152,13 +152,15 @@ The WhatsAgent MCP endpoint serves tools and events. The tools act on behalf of 
 | --- | --- |
 | `read_chat` | Read recent messages in a chat. |
 | `search` | Search stored messages. |
-| `send` | Send text to a chat. |
+| `send` | Send text, a file, or a file with a caption to a chat. |
 | `react` | React to a message. |
 | `download_media` | Save a media file into a folder that WhatsAgent owns. |
 | `route_here` | Ask the owner to route a chat to the calling session, in a mode. |
 | `list_sessions` | List checked-in sessions. |
 
 The MCP server also has `list_chats` for finding a chat, `command` for running a self-chat command (commands that change routes or rules wait for the owner's yes), and `approve`, which home uses as its permission prompt tool.
+
+An agent sends a file by giving `send` its path. The MCP server reads the file in the agent's working folder and passes its contents to the daemon, so the daemon never opens a path that a session names, and the path means what it means to the agent. Files go up to 100 MB. WhatsAgent picks how WhatsApp shows the file from its extension, or from its first bytes when the extension is unknown: JPEG and PNG as photos, with a small preview, MP4 as a video, Ogg/Opus as a voice message, MP3, M4A and AAC as audio, and everything else as a document. The text is the caption; WhatsApp shows no caption with audio, so the text goes as a message of its own before it. The daemon uploads a file only after the send rules allow or ask, and it uploads it once. An approval shows the uploaded file itself with the description, and a yes sends that same upload, so the owner approves exactly what goes out. A pending approval holds only the uploaded file's keys, not its contents.
 
 Events follow the shape of [SEP-3415](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3415), the MCP Events extension (`io.modelcontextprotocol/events`) that the [MCP Triggers and Events Working Group](https://modelcontextprotocol.io/community/working-groups/triggers-events) is drafting. The event log numbers every event, and a stream resumes after the number it was given and sends heartbeats while idle. Today the daemon serves that stream on its own socket, as JSON lines of `events`, `heartbeat` and `verdict` frames. The MCP server turns that stream into channel notifications. When the extension is merged and a harness supports it, the MCP server adds `events/list` and `events/stream` over the same log, and the harness subscribes on its own. The event format lives in the `model` and `api` packages, so it can change with the draft.
 

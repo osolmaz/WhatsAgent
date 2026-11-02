@@ -181,10 +181,14 @@ func openStore(t *testing.T) *store.Store {
 
 type fakeWA struct{}
 
-func (fakeWA) SelfChat() string                                            { return "self@s.whatsapp.net" }
-func (fakeWA) OwnName() string                                             { return "Owner" }
-func (fakeWA) NewID() string                                               { return "id" }
-func (fakeWA) SendText(context.Context, string, string, string) error      { return nil }
+func (fakeWA) SelfChat() string                                        { return "self@s.whatsapp.net" }
+func (fakeWA) OwnName() string                                         { return "Owner" }
+func (fakeWA) NewID() string                                           { return "id" }
+func (fakeWA) SendText(context.Context, string, string, string) error  { return nil }
+func (fakeWA) Upload(context.Context, model.File) (model.Media, error) { return model.Media{}, nil }
+func (fakeWA) SendMedia(context.Context, string, string, model.Media, string) error {
+	return nil
+}
 func (fakeWA) React(context.Context, string, string, string, string) error { return nil }
 func (fakeWA) Download(context.Context, []byte) ([]byte, error)            { return nil, nil }
 func (fakeWA) ChatName(context.Context, string) string                     { return "" }
