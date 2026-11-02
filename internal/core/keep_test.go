@@ -158,6 +158,22 @@ func TestCommandsChangeStateOnlyFromThePhone(t *testing.T) {
 	}
 }
 
+// TestWebLinkIsNotStored checks that /web from the phone sends the page's link to the phone, but
+// stores it nowhere, because the self-chat is kept and the CLI reads it.
+func TestWebLinkIsNotStored(t *testing.T) {
+	h := newHarnessWith(t, func(c *Config) { c.PageURL = "http://page/?token=PAGE-SECRET" })
+	h.receive(self, "/web", true)
+	h.expect("token=PAGE-SECRET")
+	h.receive(self, "/name", true)
+	h.expect("The agents are called")
+	if found, _ := h.st.Search(h.ctx, "PAGE-SECRET", "", 10, true); len(found) != 0 {
+		t.Errorf("the page's link was stored: %+v", found)
+	}
+	if found, _ := h.st.Search(h.ctx, "The agents are called", "", 10, false); len(found) != 1 {
+		t.Errorf("an ordinary reply was not stored: %+v", found)
+	}
+}
+
 // TestKeepCommand checks /keep: the list, keeping, stopping, and the self-chat that stays kept.
 func TestKeepCommand(t *testing.T) {
 	h := newHarnessWith(t, func(c *Config) { c.PageURL = "" })

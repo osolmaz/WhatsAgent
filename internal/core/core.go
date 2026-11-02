@@ -119,7 +119,7 @@ type Core struct {
 	log *slog.Logger
 
 	ctx    context.Context
-	outbox chan string
+	outbox chan outgoing
 
 	mu       sync.Mutex
 	state    string
@@ -162,7 +162,7 @@ func New(cfg Config) *Core {
 		wa:       cfg.WhatsApp,
 		log:      cfg.Log,
 		ctx:      context.Background(),
-		outbox:   make(chan string, 64),
+		outbox:   make(chan outgoing, 64),
 		state:    "starting",
 		conns:    map[string]*conn{},
 		subs:     map[string]*subscriber{},
@@ -199,12 +199,19 @@ func (c *Core) runOutbox(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case text := <-c.outbox:
-			if _, err := c.sendText(ctx, c.wa.SelfChat(), text); err != nil {
+		case o := <-c.outbox:
+			if _, err := c.send(ctx, c.wa.SelfChat(), o.text, !o.private); err != nil {
 				c.log.Warn("send to self-chat", "err", err)
 			}
 		}
 	}
+}
+
+// outgoing is one queued self-chat message. A private one, such as the browser page's link, goes
+// to the phone without being stored, so no reader of the self-chat finds it.
+type outgoing struct {
+	text    string
+	private bool
 }
 
 // runPrune drops messages older than Config.Recent from the recent buffer, every minute or at a
@@ -226,8 +233,12 @@ func (c *Core) runPrune(ctx context.Context) {
 
 // post queues a message for the self-chat.
 func (c *Core) post(text string) {
+	c.queue(outgoing{text: text})
+}
+
+func (c *Core) queue(o outgoing) {
 	select {
-	case c.outbox <- text:
+	case c.outbox <- o:
 	default:
 		c.log.Warn("self-chat outbox full, dropping a message")
 	}
@@ -236,6 +247,11 @@ func (c *Core) post(text string) {
 // say posts a WhatsAgent line in the self-chat at once.
 func (c *Core) say(text string) {
 	c.post(prefixWhatsAgent + text)
+}
+
+// sayPrivately posts a WhatsAgent line in the self-chat without storing it.
+func (c *Core) sayPrivately(text string) {
+	c.queue(outgoing{text: prefixWhatsAgent + text, private: true})
 }
 
 // PostHome posts a reply from home in the self-chat.
@@ -269,14 +285,16 @@ func (c *Core) flushStatus() {
 
 // sendText sends text to chat, spacing sends by SendGap, and stores the message as WhatsAgent's.
 func (c *Core) sendText(ctx context.Context, chat, text string) (string, error) {
+	return c.send(ctx, chat, text, true)
+}
+
+// send sends text to chat, spacing sends by SendGap, and stores the message as WhatsAgent's when
+// store is true.
+func (c *Core) send(ctx context.Context, chat, text string, store bool) (string, error) {
 	c.sendMu.Lock()
 	defer c.sendMu.Unlock()
-	if wait := time.Until(c.lastSend.Add(c.cfg.SendGap)); wait > 0 {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-time.After(wait):
-		}
+	if err := c.waitGap(ctx); err != nil {
+		return "", err
 	}
 	id := c.wa.NewID()
 	now := time.Now().UTC()
@@ -287,12 +305,29 @@ func (c *Core) sendText(ctx context.Context, chat, text string) (string, error) 
 		return "", err
 	}
 	c.lastSend = time.Now()
+	if !store {
+		return id, nil
+	}
 	sent := model.Message{Chat: chat, ID: id, Sender: c.wa.SelfChat(), SenderName: c.wa.OwnName(),
 		Time: now, FromMe: true, Role: model.RoleAgent, Text: text}
 	if _, err := c.st.Apply(ctx, model.Update{Kind: model.New, Message: sent}); err != nil {
 		c.log.Warn("store sent message", "err", err)
 	}
 	return id, nil
+}
+
+// waitGap waits until SendGap has passed since the last send. The caller holds c.sendMu.
+func (c *Core) waitGap(ctx context.Context) error {
+	wait := time.Until(c.lastSend.Add(c.cfg.SendGap))
+	if wait <= 0 {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(wait):
+		return nil
+	}
 }
 
 // OnState records a WhatsApp connection change.
@@ -410,6 +445,10 @@ func (c *Core) handleCommand(ctx context.Context, chat, text string) {
 	reply, err := c.Run(ctx, phoneOwner, text)
 	if err != nil {
 		reply = "Error: " + err.Error()
+	}
+	if name, _ := parseCommand(text); phoneOnly[name] {
+		c.sayPrivately(reply)
+		return
 	}
 	c.say(reply)
 }

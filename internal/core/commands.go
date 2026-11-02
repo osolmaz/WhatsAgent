@@ -73,8 +73,15 @@ func cmdHelp(context.Context, *Core, string) (string, error) {
 }
 
 // phoneOnly are the commands that run only from the phone, even without arguments: /web answers
-// with the browser page's link, which is a way to see messages.
+// with the browser page's link, which is a way to see messages. Their replies are not stored.
 var phoneOnly = map[string]bool{"web": true}
+
+// parseCommand splits a command line such as "/route Sam billing" into its lower-case name and
+// its arguments.
+func parseCommand(line string) (string, string) {
+	name, args, _ := strings.Cut(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "/")), " ")
+	return strings.ToLower(name), strings.TrimSpace(args)
+}
 
 // errPhone says that a command runs only from the phone.
 func errPhone(name string) error {
@@ -86,8 +93,7 @@ func errPhone(name string) error {
 // refused, and a session's request waits for the owner's yes in the self-chat. The bare form of
 // every command only shows state.
 func (c *Core) Run(ctx context.Context, caller Caller, line string) (string, error) {
-	name, args, _ := strings.Cut(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "/")), " ")
-	name, args = strings.ToLower(name), strings.TrimSpace(args)
+	name, args := parseCommand(line)
 	for _, cmd := range commands {
 		switch {
 		case cmd.name != name:

@@ -62,11 +62,13 @@ Agents that WhatsAgent drives through an adapter, such as home on Codex, get the
 
 A command that changes state runs only from the phone. Through the CLI (`whatsagent command`), only a command that shows state runs: a command without arguments whose bare form only shows, such as `/status`, `/routes` or `/keep`. A session's request to change state waits for the owner's yes in the self-chat, as before.
 
-The browser page shows the terminals of the run agents, so its link is a way to see messages. The link is sent only in the self-chat, as the answer to `/web`. `whatsagent web` asks the daemon to open the page in the default browser of the machine, and the link never reaches the CLI.
+The browser page shows the terminals of the run agents, so its link is a way to see messages. The link is sent only in the self-chat, as the answer to `/web`, and WhatsAgent does not store that answer, because the self-chat is kept and the CLI reads it. `whatsagent web` asks the daemon to open the page in the default browser of the machine, and the link never reaches the CLI.
 
 ## Outside these boundaries
 
 A program that runs as the same user can still read the files. `session.db` holds the WhatsApp keys, so a program that copies it can act as the linked device. The WhatsAgent database holds the kept chats, every chat's name and ID, the modes, windows, routes and settings, and the page's token. A program that can inspect the daemon's memory can read the recent buffer.
+
+A local program can still disturb a session. If it checks in under a run agent's name and asks for pushes, the agent can miss messages until it checks in again. The program itself still gets nothing of a chat that is not kept.
 
 Claude Code and Codex keep their own session files. What a run agent is shown ends up there, so those files hold what the owner let the agent see.
 
@@ -90,3 +92,4 @@ Each boundary has tests that would fail if it broke:
 - The CLI's `read_chat`, `search`, `export`, `download_media` and `watch` return nothing of a chat that is not kept, and an MCP server that only claims a run agent's name gets the same.
 - A process that descends from a run agent's terminal process is recognized, and any other process is not.
 - Every command with arguments that changes state is refused through the CLI, the bare form of every command changes nothing, and `/web` is refused through the CLI.
+- The answer to `/web` reaches the phone, and no stored message holds the link.
