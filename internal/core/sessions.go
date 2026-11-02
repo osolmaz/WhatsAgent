@@ -416,19 +416,20 @@ func (c *Core) Sessions(ctx context.Context) ([]model.Session, error) {
 		return nil, err
 	}
 	c.mu.Lock()
-	online := map[string]bool{}
+	online, verified := map[string]bool{}, map[string]bool{}
 	for _, cn := range c.conns {
 		online[cn.info.Name] = true
+		verified[cn.info.Name] = verified[cn.info.Name] || cn.verified
 	}
 	push := map[string]string{}
-	verified := map[string]bool{}
 	for name, sub := range c.subs {
-		push[name], verified[name] = sub.push, sub.verified
+		push[name] = sub.push
+		verified[name] = verified[name] || sub.verified
 	}
 	c.mu.Unlock()
 	for i := range known {
 		s := &known[i]
-		s.Online, s.Push = online[s.Name] || push[s.Name] != "", push[s.Name]
+		s.Online, s.Push, s.RunAgent = online[s.Name] || push[s.Name] != "", push[s.Name], verified[s.Name]
 		if b, err := c.waiting(ctx, s.Name, nil, verified[s.Name], 1000); err == nil {
 			s.Waiting = len(b.keep)
 		}

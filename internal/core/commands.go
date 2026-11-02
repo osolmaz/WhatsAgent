@@ -205,6 +205,18 @@ func (s *Status) addSession(info model.Session) {
 	}
 }
 
+// sessionLine describes one session for /sessions.
+func sessionLine(s model.Session) string {
+	state := "tools only"
+	if s.Push != "" {
+		state = "push: " + s.Push
+	}
+	if s.RunAgent {
+		state += ", run agent"
+	}
+	return fmt.Sprintf("%s: %s, %s, %s, %d waiting", s.Name, s.Harness, s.Folder, state, s.Waiting)
+}
+
 func cmdSessions(ctx context.Context, c *Core, _ string) (string, error) {
 	sessions, err := c.Sessions(ctx)
 	if err != nil {
@@ -215,11 +227,7 @@ func cmdSessions(ctx context.Context, c *Core, _ string) (string, error) {
 		if !s.Online && s.Waiting == 0 {
 			continue
 		}
-		state := "tools only"
-		if s.Push != "" {
-			state = "push: " + s.Push
-		}
-		lines = append(lines, fmt.Sprintf("%s: %s, %s, %s, %d waiting", s.Name, s.Harness, s.Folder, state, s.Waiting))
+		lines = append(lines, sessionLine(s))
 	}
 	if len(lines) == 0 {
 		return "No session is online.", nil
