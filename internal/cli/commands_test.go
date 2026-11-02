@@ -42,11 +42,20 @@ func runCtx(ctx context.Context, env paths.Env, stdin string, args ...string) (s
 	return out.String(), err
 }
 
+// keep makes chat kept in the test daemon, so the CLI may read it.
+func keep(t *testing.T, d *testkit.Daemon, chat string) {
+	t.Helper()
+	if _, _, err := d.Store.Keep(context.Background(), chat); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOwnerCommands(t *testing.T) {
 	env, d := daemonEnv(t)
+	keep(t, d, "g@g.us")
 	d.Receive("g@g.us", "line one\nline two", false)
 	media := model.Message{Chat: "g@g.us", ID: "IMG", Time: time.Now(), MediaType: "image", MimeType: "image/png", Raw: []byte{1}}
-	d.Core.OnUpdate(model.Update{Kind: model.New, Message: media}, true)
+	d.Core.OnUpdate(model.Update{Kind: model.New, Message: media})
 
 	checks := []struct {
 		args []string
@@ -105,19 +114,52 @@ func TestOwnerCommands(t *testing.T) {
 
 func TestWatch(t *testing.T) {
 	env, d := daemonEnv(t)
+	keep(t, d, "g@g.us")
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	out := make(chan string, 1)
 	go func() {
-		got, _ := runCtx(ctx, env, "", "watch", "--chat", "g@g.us", "--since", "0")
+		got, _ := runCtx(ctx, env, "", "watch", "--chat", "g@g.us", "--chat", "o@g.us", "--since", "0")
 		out <- got
 	}()
 	time.Sleep(200 * time.Millisecond)
+	d.Receive("o@g.us", "OTHER-SECRET", false)
 	d.Receive("g@g.us", "watched message", false)
 	time.Sleep(200 * time.Millisecond)
 	cancel()
-	if got := <-out; !strings.Contains(got, "[Team <> Sam] Sam: watched message [id=M1") {
+	got := <-out
+	if !strings.Contains(got, "[Team <> Sam] Sam: watched message") || strings.Contains(got, "OTHER-SECRET") {
 		t.Errorf("watch printed %q", got)
+	}
+}
+
+// TestCLIReadsOnlyKeptChats is the CLI boundary: no command prints a message of a chat that is
+// not kept, and no command changes what is kept, routed or shown.
+func TestCLIReadsOnlyKeptChats(t *testing.T) {
+	env, d := daemonEnv(t)
+	d.Core.OnChatName("o@g.us", "Other")
+	secret := d.Receive("o@g.us", "OTHER-SECRET", false)
+	d.Core.OnUpdate(model.Update{Kind: model.New, Message: model.Message{Chat: "o@g.us", ID: "IMG", Time: time.Now(),
+		MediaType: "image", MimeType: "image/png", Raw: []byte("OTHER-SECRET")}})
+	for _, args := range [][]string{
+		{"messages", "--chat", "Other"}, {"messages", "--chat", "o@g.us", "--json"}, {"search", "SECRET"},
+		{"search", "SECRET", "--chat", "Other"}, {"export", "--chat", "Other"}, {"changes", "--since", "0"},
+		{"media", "--chat", "Other", "--id", "IMG"}, {"react", "--chat", "Other", "--id", secret.ID, "--emoji", "👀"},
+		{"command", "/keep Other on"}, {"command", "/route Other helper"}, {"command", "/mode Other all"},
+		{"command", "/web"}, {"status"}, {"command", "/keep"},
+	} {
+		out, _ := runCtx(context.Background(), env, "", args...)
+		if strings.Contains(out, "OTHER-SECRET") || strings.Contains(out, "token=") {
+			t.Errorf("%v printed %q", args, out)
+		}
+	}
+	for _, line := range []string{"/keep Other on", "/route Other helper", "/mode Other all", "/web"} {
+		if _, err := runCtx(context.Background(), env, "", "command", line); err == nil {
+			t.Errorf("command %s ran through the CLI", line)
+		}
+	}
+	if kept, _ := d.Store.Kept(context.Background(), "o@g.us"); kept {
+		t.Error("the CLI kept a chat")
 	}
 }
 
@@ -167,7 +209,7 @@ func TestDaemonCommandWithoutAccount(t *testing.T) {
 func seams(t *testing.T) *[]string {
 	t.Helper()
 	var ran []string
-	oldExec, oldRun, oldStart, oldExe := execProcess, runCommand, startCommand, executable
+	oldExec, oldRun, oldExe := execProcess, runCommand, executable
 	execProcess = func(path string, argv, _ []string) error {
 		ran = append(ran, "exec "+strings.Join(argv, " "))
 		return nil
@@ -179,9 +221,8 @@ func seams(t *testing.T) *[]string {
 		}
 		return nil
 	}
-	startCommand = runCommand
 	executable = func() (string, error) { return "/opt/whatsagent", nil }
-	t.Cleanup(func() { execProcess, runCommand, startCommand, executable = oldExec, oldRun, oldStart, oldExe })
+	t.Cleanup(func() { execProcess, runCommand, executable = oldExec, oldRun, oldExe })
 	return &ran
 }
 

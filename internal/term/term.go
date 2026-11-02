@@ -288,6 +288,14 @@ func (h *Host) Running(name string) bool {
 	return ok
 }
 
+// PID returns the process ID of the running session with this name, or 0.
+func (h *Host) PID(name string) int {
+	if s, ok := h.get(name); ok && s.cmd.Process != nil {
+		return s.cmd.Process.Pid
+	}
+	return 0
+}
+
 // List returns the running sessions, sorted by name.
 func (h *Host) List() []Summary {
 	h.mu.Lock()

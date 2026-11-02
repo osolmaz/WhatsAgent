@@ -66,7 +66,7 @@ func TestChatModesWindowsAgents(t *testing.T) {
 	}
 
 	for i, at := range []int{100, 200, 300} {
-		_, _ = s.Apply(ctx, model.Update{Kind: model.New, Message: msg("g@g.us", string(rune('a'+i)), "x", at)}, true)
+		_, _ = s.Apply(ctx, model.Update{Kind: model.New, Message: msg("g@g.us", string(rune('a'+i)), "x", at)})
 	}
 	got, err := s.MessagesBetween(ctx, "g@g.us", time.Unix(150, 0), time.Unix(300, 0), 0)
 	if err != nil || len(got) != 2 || got[0].ID != "b" {

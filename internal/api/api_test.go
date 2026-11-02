@@ -63,6 +63,7 @@ func TestOwnerTools(t *testing.T) {
 	d, c := start(t)
 	ctx := context.Background()
 	d.Core.OnChatName("g@g.us", "Team <> Sam")
+	d.Keep("g@g.us")
 	d.Receive("g@g.us", "hello", false)
 
 	var chats []model.Chat
@@ -119,9 +120,11 @@ func TestSessionStreamToolsAndPermission(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	d.Core.OnChatName("g@g.us", "Team")
-	if _, err := d.Core.Run(ctx, core.Owner, "/route Team dev"); err != nil {
-		t.Fatal(err)
+	if _, err := d.Core.Run(ctx, core.Owner, "/route Team dev"); !errors.Is(err, core.ErrNotAllowed) {
+		t.Errorf("/route through the CLI = %v", err)
 	}
+	d.Phone("/route Team dev", "now goes to dev")
+	d.Keep("g@g.us")
 	token, frames := session(t, ctx, c, url.Values{"name": {"dev"}, "harness": {"claude"}, "push": {"channel"}})
 	time.Sleep(50 * time.Millisecond)
 	d.Receive("g@g.us", "ping", false)
@@ -191,6 +194,7 @@ func TestToolsOnlySessionAndWatch(t *testing.T) {
 	d, c := start(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	d.Keep("g@g.us")
 	token, _ := session(t, ctx, c, url.Values{"folder": {"/repos/app"}})
 	var status core.Status
 	if err := c.Tool(ctx, token, "status", nil, &status); err != nil || status.Online != 1 {

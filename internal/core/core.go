@@ -88,6 +88,13 @@ type Config struct {
 	// AgentIdle is how long a chat agent without an open window and without new messages keeps
 	// running before WhatsAgent stops it.
 	AgentIdle time.Duration
+	// Recent is how long the recent buffer keeps the messages of chats that are not kept.
+	Recent time.Duration
+	// Verify reports whether the session process behind a check-in is the run agent of session,
+	// which ctx identifies. Only a verified session reads chats that are not kept.
+	Verify func(ctx context.Context, session string) bool
+	// PageURL is the address of the browser page, which /web sends to the self-chat.
+	PageURL string
 }
 
 const (
@@ -146,6 +153,9 @@ func New(cfg Config) *Core {
 	if cfg.AgentIdle <= 0 {
 		cfg.AgentIdle = 15 * time.Minute
 	}
+	if cfg.Recent <= 0 {
+		cfg.Recent = 24 * time.Hour
+	}
 	return &Core{
 		cfg:      cfg,
 		st:       cfg.Store,
@@ -163,12 +173,20 @@ func New(cfg Config) *Core {
 	}
 }
 
-// Start runs the self-chat outbox and the window clock, and starts home when the owner turned
-// it on. It returns at once; everything stops when ctx ends.
+// Start keeps the self-chat, deletes stored messages of chats that are not kept, runs the
+// self-chat outbox, the window clock and the recent buffer's cleanup, and starts home when the
+// owner turned it on. It returns at once; everything stops when ctx ends.
 func (c *Core) Start(ctx context.Context) {
 	c.ctx = ctx
+	if _, _, err := c.st.Keep(ctx, c.wa.SelfChat()); err != nil {
+		c.log.Warn("keep the self-chat", "err", err)
+	}
+	if n, err := c.st.Purge(ctx); err != nil || n > 0 {
+		c.log.Info("deleted the stored messages of chats that are not kept", "messages", n, "err", err)
+	}
 	go c.runOutbox(ctx)
 	go c.runWindows(ctx)
+	go c.runPrune(ctx)
 	if harness, _ := c.st.Setting(ctx, "home"); harness != "" {
 		if err := c.startHome(ctx, harness); err != nil {
 			c.log.Warn("start home", "harness", harness, "err", err)
@@ -184,6 +202,23 @@ func (c *Core) runOutbox(ctx context.Context) {
 		case text := <-c.outbox:
 			if _, err := c.sendText(ctx, c.wa.SelfChat(), text); err != nil {
 				c.log.Warn("send to self-chat", "err", err)
+			}
+		}
+	}
+}
+
+// runPrune drops messages older than Config.Recent from the recent buffer, every minute or at a
+// tenth of Config.Recent when that is shorter.
+func (c *Core) runPrune(ctx context.Context) {
+	ticker := time.NewTicker(min(c.cfg.Recent/10, time.Minute))
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := c.st.Prune(ctx, time.Now().Add(-c.cfg.Recent)); err != nil {
+				c.log.Warn("prune the recent buffer", "err", err)
 			}
 		}
 	}
@@ -254,7 +289,7 @@ func (c *Core) sendText(ctx context.Context, chat, text string) (string, error) 
 	c.lastSend = time.Now()
 	sent := model.Message{Chat: chat, ID: id, Sender: c.wa.SelfChat(), SenderName: c.wa.OwnName(),
 		Time: now, FromMe: true, Role: model.RoleAgent, Text: text}
-	if _, err := c.st.Apply(ctx, model.Update{Kind: model.New, Message: sent}, true); err != nil {
+	if _, err := c.st.Apply(ctx, model.Update{Kind: model.New, Message: sent}); err != nil {
 		c.log.Warn("store sent message", "err", err)
 	}
 	return id, nil
@@ -292,32 +327,30 @@ func (c *Core) OnChatName(jid, name string) {
 	}
 }
 
-// OnUpdate stores a message, edit or deletion. A live owner message in the self-chat that is a
-// command or an approval answer runs at once; anything else wakes the sessions it is routed to.
-func (c *Core) OnUpdate(u model.Update, live bool) {
+// OnUpdate stores a live message, edit or deletion: in the file for a kept chat, in the recent
+// buffer otherwise. An owner message in the self-chat that is a command or an approval answer
+// runs at once; anything else wakes the sessions it is routed to.
+func (c *Core) OnUpdate(u model.Update) {
 	ctx := c.ctx
 	if u.Kind == model.New {
-		u.Message = c.prepare(ctx, u.Message, live)
+		u.Message = c.prepare(ctx, u.Message)
 	}
-	seq, err := c.st.Apply(ctx, u, live)
+	seq, err := c.st.Apply(ctx, u)
 	if err != nil {
 		c.log.Warn("store update", "id", u.Message.ID, "err", err)
 		return
 	}
-	if seq != 0 && live {
+	if seq != 0 {
 		c.dispatch(ctx, u, seq)
 	}
 }
 
-// prepare sets a new message's role and fills in its chat's name. For a live message it runs the
-// trigger before the message is stored, so no session sees the message under the window that
-// the message changes.
-func (c *Core) prepare(ctx context.Context, m model.Message, live bool) model.Message {
+// prepare sets a new message's role, fills in its chat's name, and runs the trigger before the
+// message is stored, so no session sees the message under the window that the message changes.
+func (c *Core) prepare(ctx context.Context, m model.Message) model.Message {
 	m.Role = c.role(ctx, m)
 	c.fillChatName(ctx, m)
-	if live {
-		c.runTrigger(ctx, m)
-	}
+	c.runTrigger(ctx, m)
 	return m
 }
 
@@ -374,7 +407,7 @@ func (c *Core) handleCommand(ctx context.Context, chat, text string) {
 		c.answer(ctx, chat, strings.ToLower(v[2]), strings.HasPrefix(strings.ToLower(v[1]), "y"))
 		return
 	}
-	reply, err := c.Run(ctx, Owner, text)
+	reply, err := c.Run(ctx, phoneOwner, text)
 	if err != nil {
 		reply = "Error: " + err.Error()
 	}

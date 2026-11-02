@@ -9,12 +9,12 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/model"
 )
 
-// receiveAt delivers a message sent at a given time; live false stores it as history.
-func (h *harness) receiveAt(chat, text string, fromMe bool, at time.Time, live bool) model.Message {
+// receiveAt delivers a message sent at a given time.
+func (h *harness) receiveAt(chat, text string, fromMe bool, at time.Time) model.Message {
 	h.n++
 	m := model.Message{Chat: chat, ID: "H" + strings.Repeat("x", h.n), Sender: "200@s.whatsapp.net", SenderName: "Sam",
 		Time: at.UTC(), FromMe: fromMe, Text: text}
-	h.core.OnUpdate(model.Update{Kind: model.New, Message: m}, live)
+	h.core.OnUpdate(model.Update{Kind: model.New, Message: m})
 	return m
 }
 
@@ -51,8 +51,8 @@ func TestWindowModeWithChatAgent(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
-	_, _ = h.core.Run(ctx, Owner, "/name Bob")
-	h.receiveAt("g@g.us", "from yesterday", false, time.Now().Add(-24*time.Hour), false)
+	_, _ = h.core.Run(ctx, phoneOwner, "/name Bob")
+	h.receiveAt("g@g.us", "from yesterday", false, time.Now().Add(-20*time.Hour))
 	h.receive("g@g.us", "said before", false)
 	h.receive("g@g.us", "Bob, someone else may not open it", false)
 	if _, open, _ := h.st.Window(ctx, "g@g.us"); open {
@@ -79,7 +79,8 @@ func TestWindowModeWithChatAgent(t *testing.T) {
 	if agent.host.Chat != "g@g.us" || agent.host.ChatName != "Team" || agent.host.Name != "Bob" {
 		t.Errorf("agent host = %+v", agent.host)
 	}
-	me := Caller{Session: "chat-team"}
+	// The chat agent is a run agent, which reads its chat although the chat is not kept.
+	me := Caller{Session: "chat-team", verified: true}
 	h.stored("g@g.us", start.id)
 	read, err := h.core.ReadChat(ctx, me, "g@g.us", 0)
 	if err != nil || texts(read.Messages) != "said before|Bob, someone else may not open it|Bob, what do you think?|"+
@@ -133,12 +134,12 @@ func TestWindowEndsAtItsTime(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
-	if out, _ := h.core.Run(ctx, Owner, "/window close Team"); out != "Team has no open window." {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/window close Team"); out != "Team has no open window." {
 		t.Errorf("/window close without a window = %q", out)
 	}
 	h.receive("g@g.us", "Agent start", true)
 	h.expect("Now monitoring")
-	if out, _ := h.core.Run(ctx, Owner, "/status"); !strings.Contains(out, "Open window: Team, until") {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/status"); !strings.Contains(out, "Open window: Team, until") {
 		t.Errorf("/status = %q", out)
 	}
 	w, _, _ := h.st.Window(ctx, "g@g.us")
@@ -151,7 +152,7 @@ func TestWindowEndsAtItsTime(t *testing.T) {
 
 	h.receive("g@g.us", "agent, monitor this again", true)
 	h.expect("Now monitoring")
-	if out, _ := h.core.Run(ctx, Owner, "/window close Team"); out != "Closed the window of Team." {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/window close Team"); out != "Closed the window of Team." {
 		t.Errorf("/window close = %q", out)
 	}
 	h.expect("I am done here")
@@ -161,10 +162,11 @@ func TestKeywordAndOffModes(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
-	_, _ = h.core.Run(ctx, Owner, "/name Bob")
-	if out, err := h.core.Run(ctx, Owner, "/route Team billing keyword"); err != nil || !strings.Contains(out, "keyword mode") {
+	_, _ = h.core.Run(ctx, phoneOwner, "/name Bob")
+	if out, err := h.core.Run(ctx, phoneOwner, "/route Team billing keyword"); err != nil || !strings.Contains(out, "keyword mode") {
 		t.Fatalf("/route with a mode = %q, %v", out, err)
 	}
+	h.keep("g@g.us")
 	token, _, _ := h.core.CheckIn(ctx, model.Session{Name: "billing"})
 	p := newPusher()
 	go func() { _ = h.core.Subscribe(ctx, token, "channel", p) }()
@@ -186,7 +188,7 @@ func TestKeywordAndOffModes(t *testing.T) {
 	// The owner's reply to an agent message is a trigger too.
 	// A second later, so the reply sorts after the answer even on a fast machine.
 	reply := model.Message{Chat: "g@g.us", ID: "R1", Time: time.Now().UTC().Add(time.Second), FromMe: true, Text: "and the dates?", ReplyTo: answer.id}
-	h.core.OnUpdate(model.Update{Kind: model.New, Message: reply}, true)
+	h.core.OnUpdate(model.Update{Kind: model.New, Message: reply})
 	if got := events(t, p); got[0].Message.Text != "and the dates?" {
 		t.Fatalf("reply pushed %+v", got)
 	}
@@ -198,7 +200,7 @@ func TestKeywordAndOffModes(t *testing.T) {
 		t.Errorf("keyword search found %d hidden messages", len(found))
 	}
 
-	if out, _ := h.core.Run(ctx, Owner, "/mode Team off"); out != "Team: off." {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/mode Team off"); out != "Team: off." {
 		t.Errorf("/mode off = %q", out)
 	}
 	h.receive("g@g.us", "Bob, are you there?", true)
@@ -209,10 +211,10 @@ func TestKeywordAndOffModes(t *testing.T) {
 	if out, _ := h.core.Send(ctx, billing, "Team", "hello?"); !strings.Contains(out, "waiting for the owner") {
 		t.Errorf("off send = %q", out)
 	}
-	if out, _ := h.core.Run(ctx, Owner, "/routes"); !strings.Contains(out, "Team -> billing (off)") {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/routes"); !strings.Contains(out, "Team -> billing (off)") {
 		t.Errorf("/routes = %q", out)
 	}
-	if out, _ := h.core.Run(ctx, Owner, "/unroute Team"); !strings.Contains(out, "mode of every chat applies") {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/unroute Team"); !strings.Contains(out, "mode of every chat applies") {
 		t.Errorf("/unroute = %q", out)
 	}
 	if _, ok, _ := h.st.ChatMode(ctx, "g@g.us"); ok {
@@ -226,7 +228,7 @@ func TestModeAndWindowCommands(t *testing.T) {
 	h.core.OnChatName("g@g.us", "Team <> Sam")
 	run := func(line string) string {
 		t.Helper()
-		out, err := h.core.Run(ctx, Owner, line)
+		out, err := h.core.Run(ctx, phoneOwner, line)
 		if err != nil {
 			t.Fatalf("%s: %v", line, err)
 		}
@@ -246,7 +248,7 @@ func TestModeAndWindowCommands(t *testing.T) {
 	}
 	for _, bad := range []string{"/mode Team", "/mode Team sometimes", "/mode nowhere all", "/window lookback soon",
 		"/window colour blue", "/window stop", "/window close nowhere"} {
-		if _, err := h.core.Run(ctx, Owner, bad); err == nil {
+		if _, err := h.core.Run(ctx, phoneOwner, bad); err == nil {
 			t.Errorf("%s gave no error", bad)
 		}
 	}
@@ -290,7 +292,7 @@ func TestChatAgentLifecycle(t *testing.T) {
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
 	h.core.OnChatName("x@g.us", "Broken")
-	_, _ = h.core.Run(ctx, Owner, "/mode * all")
+	_, _ = h.core.Run(ctx, phoneOwner, "/mode * all")
 	if err := h.st.TouchSession(ctx, model.Session{Name: "chat-team"}); err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +325,7 @@ func TestChatAgentLifecycle(t *testing.T) {
 	}
 
 	// A route takes the chat from its agent.
-	_, _ = h.core.Run(ctx, Owner, "/route Team billing")
+	_, _ = h.core.Run(ctx, phoneOwner, "/route Team billing")
 	h.receive("g@g.us", "for billing", false)
 	quiet(t, agent.fakePusher)
 	if _, err := h.core.ReadChat(ctx, Caller{Session: "chat-team-2"}, "Team", 5); !errors.Is(err, ErrNotAllowed) {
@@ -361,10 +363,11 @@ func TestHiddenMessagesStayHidden(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
-	_, _ = h.core.Run(ctx, Owner, "/route Team bot keyword")
+	_, _ = h.core.Run(ctx, phoneOwner, "/route Team bot keyword")
+	h.keep("g@g.us")
 	media := model.Message{Chat: "g@g.us", ID: "IMG", Sender: "200@s.whatsapp.net", Time: time.Now(), MediaType: "image",
 		MimeType: "image/jpeg", Raw: []byte{1}}
-	h.core.OnUpdate(model.Update{Kind: model.New, Message: media}, true)
+	h.core.OnUpdate(model.Update{Kind: model.New, Message: media})
 	bot := Caller{Session: "bot"}
 	if _, err := h.core.DownloadMedia(ctx, bot, "Team", "IMG"); err == nil {
 		t.Error("the bot downloaded media that its mode hides")
@@ -372,7 +375,7 @@ func TestHiddenMessagesStayHidden(t *testing.T) {
 	if _, err := h.core.React(ctx, bot, "Team", "IMG", "👀"); err == nil {
 		t.Error("the bot reacted to a message that its mode hides")
 	}
-	_, _ = h.core.Run(ctx, Owner, "/mode Team all")
+	_, _ = h.core.Run(ctx, phoneOwner, "/mode Team all")
 	if _, err := h.core.DownloadMedia(ctx, bot, "Team", "IMG"); err != nil {
 		t.Errorf("download in the all mode: %v", err)
 	}

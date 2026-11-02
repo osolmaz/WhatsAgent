@@ -25,11 +25,6 @@ var (
 		cmd.Stdout, cmd.Stderr = os.Stderr, os.Stderr
 		return cmd.Run()
 	}
-	// startCommand starts a program and does not wait for it, such as a browser that keeps
-	// running after it opened a page.
-	startCommand = func(name string, args ...string) error {
-		return exec.Command(name, args...).Start()
-	}
 	executable = os.Executable
 )
 

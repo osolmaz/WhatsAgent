@@ -44,7 +44,7 @@ When the owner stops keeping a chat, WhatsAgent deletes the chat's stored messag
 
 ### Memory
 
-The recent buffer is an in-memory SQLite database with the same tables as the file. Temporary storage of both databases stays in memory, so a large query does not spill message text into temporary files. The buffer drops messages older than 24 hours, and a restart empties it. Messages in the file and in the buffer share one event sequence, so a session's cursor works across both.
+The recent buffer is an in-memory SQLite database with the same tables as the file. Temporary storage of both databases stays in memory, so a large query does not spill message text into temporary files. Every minute the buffer drops messages older than 24 hours, and a restart empties it. Messages in the file and in the buffer share one event sequence, so a session's cursor works across both.
 
 When the owner keeps a chat, its messages move from the buffer to the file.
 
@@ -52,7 +52,7 @@ When the owner keeps a chat, its messages move from the buffer to the file.
 
 The messages of a chat that is not kept reach only run agents, and only what each agent's view shows: its own chat as the chat's mode allows, or every chat for home. They reach a run agent as pushes and through `read_chat`, `search` and `react`.
 
-Every other caller gets kept chats only: the CLI and the owner API, `whatsagent watch`, sessions that check in by themselves, and agent tool calls made with `--session`. For these callers a chat that is not kept looks empty, and its events are skipped.
+Every other caller gets kept chats only: the CLI and the owner API, `whatsagent watch`, sessions that check in by themselves, and agent tool calls made with `--session`. For these callers, reading a chat that is not kept fails with an error, a search leaves it out, and its events are skipped for good, so keeping the chat later does not deliver them.
 
 The daemon recognizes a run agent by its process. The WhatsAgent MCP server of a run agent is a child of the agent's process, which the daemon started in its terminal. When an MCP server checks in, the daemon reads the process ID of the other end of the Unix socket (`SO_PEERCRED` on Linux, `LOCAL_PEERPID` on macOS) and accepts it as a run agent only when that process descends from the terminal process of the session name it claims. A session name alone proves nothing, so a script that sets `WHATSAGENT_SESSION=home` gets kept chats only.
 

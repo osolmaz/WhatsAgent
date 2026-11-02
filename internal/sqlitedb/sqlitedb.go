@@ -21,12 +21,35 @@ const fileMode = 0o600
 var ErrBadPath = errors.New("bad database path")
 
 // pragmas run on every connection: foreign keys on, WAL journal, a bounded wait for locks, and
-// full fsync, because the session store holds keys that must survive a crash.
+// full fsync, because the session store holds keys that must survive a crash. Secure delete
+// overwrites deleted rows, so deleted messages do not stay behind in free pages, and temporary
+// storage stays in memory, so a large query does not write message text to temporary files.
 var pragmas = []string{
 	"foreign_keys(1)",
 	"journal_mode(WAL)",
 	"busy_timeout(10000)",
 	"synchronous(FULL)",
+	"secure_delete(1)",
+	"temp_store(2)",
+}
+
+// OpenMemory opens a new, empty SQLite database that lives in memory only. It keeps a single
+// connection, because every connection to ":memory:" is a separate database.
+func OpenMemory() (*sql.DB, error) {
+	query := url.Values{"_pragma": {"foreign_keys(1)", "temp_store(2)"}}
+	db, err := sql.Open("sqlite", "file::memory:?"+query.Encode())
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+	db.SetConnMaxIdleTime(0)
+	if err := db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
 }
 
 // Open opens or creates the SQLite database at the absolute path, creating its folder with

@@ -27,29 +27,30 @@ func msg(chat, id, text string, at int) model.Message {
 func TestApplyAndQueries(t *testing.T) {
 	ctx := context.Background()
 	s := open(t)
+	keep(t, s, "g@g.us")
 	m := msg("g@g.us", "m1", "hello world", 100)
 	m.Mentions = map[string]string{"1@s.whatsapp.net": "Sam"}
 	m.Raw = []byte{1, 2}
-	seq, err := s.Apply(ctx, model.Update{Kind: model.New, Message: m}, true)
+	seq, err := s.Apply(ctx, model.Update{Kind: model.New, Message: m})
 	if err != nil || seq != 1 {
 		t.Fatalf("Apply = %d, %v", seq, err)
 	}
-	if seq, _ := s.Apply(ctx, model.Update{Kind: model.New, Message: m}, true); seq != 0 {
+	if seq, _ := s.Apply(ctx, model.Update{Kind: model.New, Message: m}); seq != 0 {
 		t.Errorf("duplicate Apply = %d, want 0", seq)
 	}
-	if _, err := s.Apply(ctx, model.Update{Kind: model.New, Message: msg("g@g.us", "m2", "second 100%", 200)}, false); err != nil {
+	if _, err := s.Apply(ctx, model.Update{Kind: model.New, Message: msg("g@g.us", "m2", "second 100%", 200)}); err != nil {
 		t.Fatal(err)
 	}
-	if seq, _ := s.Apply(ctx, model.Update{Kind: model.Edit, Message: model.Message{Chat: "g@g.us", ID: "m1", Text: "edited"}}, true); seq != 3 {
+	if seq, _ := s.Apply(ctx, model.Update{Kind: model.Edit, Message: model.Message{Chat: "g@g.us", ID: "m1", Text: "edited"}}); seq != 3 {
 		t.Errorf("edit seq = %d", seq)
 	}
-	if seq, _ := s.Apply(ctx, model.Update{Kind: model.Delete, Message: model.Message{Chat: "g@g.us", ID: "m2"}}, true); seq != 4 {
+	if seq, _ := s.Apply(ctx, model.Update{Kind: model.Delete, Message: model.Message{Chat: "g@g.us", ID: "m2"}}); seq != 4 {
 		t.Errorf("delete seq = %d", seq)
 	}
-	if seq, _ := s.Apply(ctx, model.Update{Kind: model.Delete, Message: model.Message{Chat: "g@g.us", ID: "m2"}}, true); seq != 0 {
+	if seq, _ := s.Apply(ctx, model.Update{Kind: model.Delete, Message: model.Message{Chat: "g@g.us", ID: "m2"}}); seq != 0 {
 		t.Errorf("second delete seq = %d", seq)
 	}
-	if _, err := s.Apply(ctx, model.Update{Kind: "bad", Message: m}, true); err == nil {
+	if _, err := s.Apply(ctx, model.Update{Kind: "bad", Message: m}); err == nil {
 		t.Error("bad kind gave no error")
 	}
 
@@ -65,18 +66,18 @@ func TestApplyAndQueries(t *testing.T) {
 	if len(all) != 2 || len(last) != 1 || last[0].ID != "m2" || !last[0].Deleted {
 		t.Errorf("Messages = %+v / %+v", all, last)
 	}
-	if found, _ := s.Search(ctx, "100%", "", 10); len(found) != 0 {
+	if found, _ := s.Search(ctx, "100%", "", 10, false); len(found) != 0 {
 		t.Errorf("deleted text still found: %+v", found)
 	}
-	if found, _ := s.Search(ctx, "edit", "g@g.us", 10); len(found) != 1 {
+	if found, _ := s.Search(ctx, "edit", "g@g.us", 10, false); len(found) != 1 {
 		t.Errorf("Search = %+v", found)
 	}
 
 	events, err := s.Events(ctx, 0, []string{"g@g.us"}, 10)
-	if err != nil || len(events) != 3 || events[0].Kind != model.New || events[1].Kind != model.Edit {
+	if err != nil || len(events) != 4 || events[0].Kind != model.New || events[2].Kind != model.Edit {
 		t.Errorf("Events = %+v, %v", events, err)
 	}
-	if every, _ := s.Events(ctx, 1, []string{"*"}, 10); len(every) != 2 {
+	if every, _ := s.Events(ctx, 1, []string{"*"}, 10); len(every) != 3 {
 		t.Errorf("Events(*) = %d", len(every))
 	}
 	if none, _ := s.Events(ctx, 0, nil, 10); none != nil {
@@ -92,7 +93,8 @@ func TestChatsRoutesRulesSessions(t *testing.T) {
 	ctx := context.Background()
 	s := open(t)
 	_ = s.SetChatName(ctx, "g@g.us", "Team <> Sam")
-	_, _ = s.Apply(ctx, model.Update{Kind: model.New, Message: msg("g@g.us", "m1", "x", 100)}, true)
+	keep(t, s, "g@g.us")
+	_, _ = s.Apply(ctx, model.Update{Kind: model.New, Message: msg("g@g.us", "m1", "x", 100)})
 	if c, _ := s.Chat(ctx, "g@g.us"); c.Name != "Team <> Sam" || c.LastTime.IsZero() {
 		t.Errorf("Chat = %+v", c)
 	}

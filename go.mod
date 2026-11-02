@@ -8,6 +8,7 @@ require (
 	github.com/mdp/qrterminal/v3 v3.2.1
 	github.com/spf13/cobra v1.10.2
 	go.mau.fi/whatsmeow v0.0.0-20261017175727-b2b1e71d45e2
+	golang.org/x/sys v0.49.0
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.1
 )
@@ -34,7 +35,6 @@ require (
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
 	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	modernc.org/libc v1.79.0 // indirect

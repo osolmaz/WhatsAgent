@@ -23,16 +23,14 @@ import (
 type recorder struct {
 	mu      sync.Mutex
 	updates []model.Update
-	live    []bool
 	names   map[string]string
 	states  []string
 }
 
-func (r *recorder) OnUpdate(u model.Update, live bool) {
+func (r *recorder) OnUpdate(u model.Update) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.updates = append(r.updates, u)
-	r.live = append(r.live, live)
 }
 
 func (r *recorder) OnChatName(jid, name string) {
@@ -171,6 +169,7 @@ func TestDispatch(t *testing.T) {
 	webMsg := &waWeb.WebMessageInfo{Key: &waCommon.MessageKey{RemoteJID: proto.String("8@g.us"), ID: proto.String("H1"),
 		Participant: proto.String("2@s.whatsapp.net")}, MessageTimestamp: proto.Uint64(1700000000),
 		Message: &waE2E.Message{Conversation: proto.String("old")}}
+	before := len(r.updates)
 	c.dispatch(ctx, r, &events.HistorySync{Data: &waHistorySync.HistorySync{Conversations: []*waHistorySync.Conversation{
 		{ID: proto.String("8@g.us"), Name: proto.String("Old group"), Messages: []*waHistorySync.HistorySyncMsg{{Message: webMsg}}},
 		{ID: proto.String("not a jid@@")},
@@ -178,9 +177,9 @@ func TestDispatch(t *testing.T) {
 	if r.names["9@g.us"] != "Team" || r.names["8@g.us"] != "Old group" {
 		t.Errorf("names = %v", r.names)
 	}
-	last := len(r.updates) - 1
-	if r.updates[last].Message.Text != "old" || r.live[last] {
-		t.Errorf("history update = %+v, live %v", r.updates[last], r.live[last])
+	// The history gives chat names only; its messages are never passed on.
+	if len(r.updates) != before {
+		t.Errorf("history passed on %+v", r.updates[before:])
 	}
 	c.dispatch(ctx, r, &events.Connected{})
 	c.dispatch(ctx, r, &events.LoggedOut{})

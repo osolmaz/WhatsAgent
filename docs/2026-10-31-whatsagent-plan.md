@@ -38,10 +38,14 @@ Code and docs use one name for each concept:
 | command | A self-chat message that starts with `/`. WhatsAgent handles it, and no agent sees it. |
 | check-in | A session becoming known to WhatsAgent, through the WhatsAgent MCP server or through the harness's own API. |
 | adapter | The WhatsAgent code for one harness. It handles check-in, pushes, approval prompts and home for that harness. |
+| kept chat | A chat whose messages WhatsAgent stores in its database, because the owner kept it with `/keep`. The self-chat is always kept. |
+| recent buffer | The daemon's in-memory database for the messages of chats that are not kept, which it holds for at most 24 hours. |
+| run agent | An agent that WhatsAgent runs in a terminal of its own, home or a chat agent, which the daemon recognizes by its process. Only run agents read chats that are not kept. |
+| phone | The self-chat as the source of a command. Commands that change state run only from the phone. |
 
 ## Architecture
 
-WhatsAgent links to the owner's account as a WhatsApp linked device, using [whatsmeow](https://github.com/tulir/whatsmeow), the Go library behind several open source WhatsApp tools. It stores every message in an event log and uses the routes to decide which session gets it. Sessions never talk to WhatsApp directly. They read and send through WhatsAgent's MCP tools, which lets WhatsAgent apply its rules to every send. Everything that differs between harnesses lives in the adapters.
+WhatsAgent links to the owner's account as a WhatsApp linked device, using [whatsmeow](https://github.com/tulir/whatsmeow), the Go library behind several open source WhatsApp tools. It puts every live message in an event log and uses the routes to decide which session gets it. Only kept chats go to disk; the messages of other chats stay in the recent buffer, and the history that WhatsApp sends at linking is never stored (see the [message storage specification](2026-11-02-message-storage.md)). Sessions never talk to WhatsApp directly. They read and send through WhatsAgent's MCP tools, which lets WhatsAgent apply its rules to every send. Everything that differs between harnesses lives in the adapters.
 
 ```text
               owner's phone: self-chat

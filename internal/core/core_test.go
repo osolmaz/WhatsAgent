@@ -116,6 +116,12 @@ func (h *harness) agent(session string) *fakeAgent {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessWith(t, func(*Config) {})
+}
+
+// newHarnessWith returns a harness whose core config change adjusts before the core starts.
+func newHarnessWith(t *testing.T, change func(*Config)) *harness {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
@@ -136,13 +142,25 @@ func newHarness(t *testing.T) *harness {
 			return p, nil
 		}
 	}
-	h.core = New(Config{Store: st, WhatsApp: h.wa, MediaDir: t.TempDir(), Location: time.UTC,
+	cfg := Config{Store: st, WhatsApp: h.wa, MediaDir: t.TempDir(), Location: time.UTC,
 		Homes:       map[string]AgentFactory{"claude": factory("claude"), "codex": factory("codex"), "broken": factory("broken")},
 		ChatAgent:   h.startAgent,
 		StatusDelay: 10 * time.Millisecond, Heartbeat: 20 * time.Millisecond,
-		WindowCheck: 20 * time.Millisecond, AgentIdle: 300 * time.Millisecond})
+		WindowCheck: 20 * time.Millisecond, AgentIdle: 300 * time.Millisecond}
+	change(&cfg)
+	h.core = New(cfg)
 	h.core.Start(ctx)
 	return h
+}
+
+// keep makes chats kept, so callers that are not run agents may read them.
+func (h *harness) keep(chats ...string) {
+	h.t.Helper()
+	for _, chat := range chats {
+		if _, _, err := h.st.Keep(h.ctx, chat); err != nil {
+			h.t.Fatal(err)
+		}
+	}
 }
 
 func (h *harness) startAgent(_ context.Context, host AgentHost) (Pusher, error) {
@@ -166,7 +184,7 @@ func (h *harness) receive(chat, text string, fromMe bool) model.Message {
 	h.n++
 	m := model.Message{Chat: chat, ID: fmt.Sprintf("M%d", h.n), Sender: "200@s.whatsapp.net", SenderName: "Sam",
 		Time: time.Now().UTC(), FromMe: fromMe, Text: text}
-	h.core.OnUpdate(model.Update{Kind: model.New, Message: m}, true)
+	h.core.OnUpdate(model.Update{Kind: model.New, Message: m})
 	return m
 }
 
@@ -251,12 +269,13 @@ func TestRoutesPushAndAddressed(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
 	h.core.OnChatName("g@g.us", "Team")
+	h.keep("g@g.us")
 	token, name, err := h.core.CheckIn(ctx, model.Session{Folder: "/repos/billing api", Harness: "claude"})
 	if err != nil || name != "billing-api" {
 		t.Fatalf("CheckIn = %q, %v", name, err)
 	}
 	p := newPusher()
-	if reply, err := h.core.Run(ctx, Owner, "/route Team billing-api"); err != nil || !strings.Contains(reply, "now goes to billing-api") {
+	if reply, err := h.core.Run(ctx, phoneOwner, "/route Team billing-api"); err != nil || !strings.Contains(reply, "now goes to billing-api") {
 		t.Fatalf("/route = %q, %v", reply, err)
 	}
 	go func() { _ = h.core.Subscribe(ctx, token, "channel", p) }()
@@ -270,10 +289,10 @@ func TestRoutesPushAndAddressed(t *testing.T) {
 	h.receive("other@g.us", "not routed", false)
 	time.Sleep(100 * time.Millisecond) // let the push session pass these two before the route changes
 
-	if _, err := h.core.Run(ctx, Owner, "/mode Team keyword"); err != nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/mode Team keyword"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.core.Run(ctx, Owner, "/name Bob"); err != nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/name Bob"); err != nil {
 		t.Fatal(err)
 	}
 	h.receive("g@g.us", "chatter", false)
@@ -288,19 +307,19 @@ func TestRoutesPushAndAddressed(t *testing.T) {
 	if len(sessions) != 1 || !sessions[0].Online || sessions[0].Push != "channel" {
 		t.Errorf("Sessions = %+v", sessions)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/sessions"); !strings.Contains(reply, "push: channel") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/sessions"); !strings.Contains(reply, "push: channel") {
 		t.Errorf("/sessions = %q", reply)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/routes"); !strings.Contains(reply, "Team -> billing-api") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/routes"); !strings.Contains(reply, "Team -> billing-api") {
 		t.Errorf("/routes = %q", reply)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/unroute Team"); !strings.Contains(reply, "no longer goes") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/unroute Team"); !strings.Contains(reply, "no longer goes") {
 		t.Errorf("/unroute = %q", reply)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/unroute Team"); !strings.Contains(reply, "had no route") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/unroute Team"); !strings.Contains(reply, "had no route") {
 		t.Errorf("second /unroute = %q", reply)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/routes"); !strings.Contains(reply, "No routes") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/routes"); !strings.Contains(reply, "No routes") {
 		t.Errorf("empty /routes = %q", reply)
 	}
 	h.core.CheckOut(token)
@@ -318,6 +337,7 @@ func TestEveryChatRouteAndWatch(t *testing.T) {
 	defer cancel()
 	_, _ = h.core.setRoute(ctx, model.Route{Chat: "*", Session: "all"}, model.ModeAll)
 	_, _ = h.core.setRoute(ctx, model.Route{Chat: "mine@g.us", Session: "someone-else"}, model.ModeAll)
+	h.keep("any@g.us", "mine@g.us", "extra@g.us")
 	p := newPusher()
 	go func() { _ = h.core.Watch(ctx, "all", []string{"extra@g.us"}, 0, p) }()
 	time.Sleep(50 * time.Millisecond)
@@ -351,19 +371,19 @@ func TestHome(t *testing.T) {
 	if id, _ := h.st.Setting(ctx, "home.claude.session"); id != "id-claude" {
 		t.Errorf("home session = %q", id)
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/home new"); !strings.Contains(reply, "fresh home session") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/home new"); !strings.Contains(reply, "fresh home session") {
 		t.Errorf("/home new = %q", reply)
 	}
-	if _, err := h.core.Run(ctx, Owner, "/home vim"); err == nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/home vim"); err == nil {
 		t.Error("/home vim gave no error")
 	}
-	if _, err := h.core.Run(ctx, Owner, "/home broken"); err == nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/home broken"); err == nil {
 		t.Error("/home broken gave no error")
 	}
-	if reply, _ := h.core.Run(ctx, Owner, "/home off"); !strings.Contains(reply, "Home is off") {
+	if reply, _ := h.core.Run(ctx, phoneOwner, "/home off"); !strings.Contains(reply, "Home is off") {
 		t.Errorf("/home off = %q", reply)
 	}
-	if _, err := h.core.Run(ctx, Owner, "/home new"); err == nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/home new"); err == nil {
 		t.Error("/home new while off gave no error")
 	}
 	if err := h.core.startHome(ctx, "none"); err == nil {
@@ -445,12 +465,13 @@ func TestSendRulesAndApprovals(t *testing.T) {
 func TestReactMediaReadSearch(t *testing.T) {
 	h := newHarness(t)
 	ctx := h.ctx
+	h.keep("g@g.us")
 	m := h.receive("g@g.us", "photo caption", false)
 	media := model.Message{Chat: "g@g.us", ID: "IMG", Sender: "200@s.whatsapp.net", RawSender: "200@lid",
 		Time: time.Now(), MediaType: "image", MimeType: "image/jpeg", Raw: []byte{1}}
-	h.core.OnUpdate(model.Update{Kind: model.New, Message: media}, true)
+	h.core.OnUpdate(model.Update{Kind: model.New, Message: media})
 	doc := model.Message{Chat: "g@g.us", ID: "DOC", Time: time.Now(), MediaType: "document", Filename: "a b.pdf", Raw: []byte{1}}
-	h.core.OnUpdate(model.Update{Kind: model.New, Message: doc}, false)
+	h.core.OnUpdate(model.Update{Kind: model.New, Message: doc})
 
 	if out, err := h.core.React(ctx, Owner, "g@g.us", "IMG", "👀"); err != nil || out != "reacted" {
 		t.Fatalf("React = %q, %v", out, err)
@@ -543,21 +564,21 @@ func TestSessionCommandsWaitForOwner(t *testing.T) {
 		t.Errorf("session /rules = %q", out)
 	}
 	for _, line := range []string{"/ask", "/route Team", "/rename bot"} {
-		if _, err := h.core.Run(ctx, Owner, line); err == nil {
+		if _, err := h.core.Run(ctx, phoneOwner, line); err == nil {
 			t.Errorf("%s gave no error", line)
 		}
 	}
-	if out, _ := h.core.Run(ctx, Owner, "/ask * *"); !strings.Contains(out, "Rule: ask") {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/ask * *"); !strings.Contains(out, "Rule: ask") {
 		t.Errorf("/ask = %q", out)
 	}
-	if _, err := h.core.Run(ctx, Owner, "/allow bot no-such-chat"); err == nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/allow bot no-such-chat"); err == nil {
 		t.Error("/allow with an unknown chat gave no error")
 	}
-	if out, _ := h.core.Run(ctx, Owner, "/rename bot helper"); !strings.Contains(out, "bot is now helper") {
+	if out, _ := h.core.Run(ctx, phoneOwner, "/rename bot helper"); !strings.Contains(out, "bot is now helper") {
 		t.Errorf("/rename = %q", out)
 	}
 	_ = h.st.SetRoute(ctx, model.Route{Chat: "*", Session: "x"})
-	if _, err := h.core.Run(ctx, Owner, "/unroute *"); err != nil {
+	if _, err := h.core.Run(ctx, phoneOwner, "/unroute *"); err != nil {
 		t.Errorf("/unroute *: %v", err)
 	}
 
@@ -628,6 +649,7 @@ func TestAttachHeartbeatAndStatusMerge(t *testing.T) {
 	h := newHarness(t)
 	ctx, cancel := context.WithCancel(h.ctx)
 	_, _ = h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "codex-a"}, model.ModeAll)
+	h.keep("g@g.us")
 	p := newPusher()
 	done := make(chan error, 1)
 	go func() { done <- h.core.Attach(ctx, model.Session{Name: "codex-a", Harness: "codex"}, "codex", p) }()
@@ -701,6 +723,7 @@ func TestFullBatchWakesAgain(t *testing.T) {
 	ctx, cancel := context.WithCancel(h.ctx)
 	defer cancel()
 	_, _ = h.core.setRoute(ctx, model.Route{Chat: "g@g.us", Session: "bulk"}, model.ModeAll)
+	h.keep("g@g.us")
 	if err := h.st.TouchSession(ctx, model.Session{Name: "bulk"}); err != nil {
 		t.Fatal(err)
 	}
@@ -733,5 +756,5 @@ func TestOwnSendFailsAndOutboxFull(t *testing.T) {
 	if _, err := h.core.sendText(ctx, "g@g.us", "x"); err == nil {
 		t.Error("sendText on a cancelled context gave no error")
 	}
-	h.core.OnUpdate(model.Update{Kind: "bad", Message: model.Message{Chat: "g@g.us", ID: "z"}}, true)
+	h.core.OnUpdate(model.Update{Kind: "bad", Message: model.Message{Chat: "g@g.us", ID: "z"}})
 }

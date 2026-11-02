@@ -21,6 +21,7 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/home"
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/paths"
+	"github.com/osolmaz/WhatsAgent/internal/peer"
 	"github.com/osolmaz/WhatsAgent/internal/store"
 	"github.com/osolmaz/WhatsAgent/internal/term"
 	"github.com/osolmaz/WhatsAgent/internal/wa"
@@ -84,9 +85,11 @@ func Run(ctx context.Context, opts Options) error {
 	terminals.Changed = page.Notify
 	opener := &pageOpener{url: pageURL, viewers: page.Viewers, open: browser.Open, every: time.Minute,
 		enabled: func() bool { v, _ := st.Setting(ctx, core.SettingBrowser); return v != "off" }}
-	c, adapter := build(opts, st, client, terminals, opener)
+	c, adapter := build(opts, st, client, terminals, opener, pageURL)
 	defer adapter.Close()
-	server := &http.Server{Handler: api.NewServer(c, pageURL), ReadHeaderTimeout: 10 * time.Second}
+	openPage := func() bool { return browser.Open(pageURL) }
+	server := &http.Server{Handler: api.NewServer(c, openPage), ReadHeaderTimeout: 10 * time.Second,
+		ConnContext: peer.ConnContext}
 	go func() { _ = server.Serve(listener) }()
 	defer server.Close()
 	c.Start(ctx)
@@ -97,7 +100,7 @@ func Run(ctx context.Context, opts Options) error {
 // build creates the core with both home adapters and the Codex adapter. Agents on Claude Code
 // run in terminals on terminals, where the browser page shows them.
 func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Host,
-	opener *pageOpener) (*core.Core, *codex.Adapter) {
+	opener *pageOpener, pageURL string) (*core.Core, *codex.Adapter) {
 	var c *core.Core
 	adapter := codex.New(codex.Options{Socket: opts.CodexSocket, Version: opts.Version, Log: opts.Log, Tools: opts.Tools,
 		Approve: func(ctx context.Context, title, detail string) bool {
@@ -118,8 +121,18 @@ func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Hos
 			},
 		},
 		ChatAgent: chatAgents(opts, terminals, opener),
+		Verify:    verifier(terminals.PID),
+		PageURL:   pageURL,
 	})
 	return c, adapter
+}
+
+// verifier recognizes the MCP server of a run agent: its process descends from the process that
+// runs the session's terminal, which pidOf returns. A session name alone proves nothing.
+func verifier(pidOf func(session string) int) func(ctx context.Context, session string) bool {
+	return func(ctx context.Context, session string) bool {
+		return peer.Descends(peer.FromContext(ctx), pidOf(session))
+	}
 }
 
 // chatAgents starts each chat's own agent on Claude Code, with no built-in tools other than web

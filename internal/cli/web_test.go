@@ -8,27 +8,20 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/paths"
 )
 
+// TestWebCommand checks that `whatsagent web` asks the daemon to open the page and never prints
+// the page's link.
 func TestWebCommand(t *testing.T) {
-	env, _ := daemonEnv(t)
-	ran := seams(t)
-	out, err := runCtx(context.Background(), env, "", "web", "--print")
-	if err != nil || out != "http://127.0.0.1:1/?token=test\n" {
-		t.Errorf("web --print = %q, %v", out, err)
+	env, d := daemonEnv(t)
+	out, err := runCtx(context.Background(), env, "", "web")
+	if err != nil || out != "Opened the browser page on this computer.\n" || d.Opens.Load() != 1 {
+		t.Errorf("web = %q, %v, opens %d", out, err, d.Opens.Load())
 	}
-	// Without a desktop, the address is printed instead of opened.
-	if out, err := runCtx(context.Background(), env, "", "web"); err != nil || out != "http://127.0.0.1:1/?token=test\n" || len(*ran) != 0 {
-		t.Errorf("web without a desktop = %q, %v, ran %v", out, err, *ran)
+	d.NoDesktop.Store(true)
+	if _, err := runCtx(context.Background(), env, "", "web"); err == nil || !strings.Contains(err.Error(), "/web in the self-chat") {
+		t.Errorf("web without a desktop: %v", err)
 	}
-	desktop := env
-	desktop.Getenv = func(k string) string {
-		if k == "DISPLAY" {
-			return ":0"
-		}
-		return env.Getenv(k)
-	}
-	out, err = runCtx(context.Background(), desktop, "", "web")
-	if err != nil || !strings.HasPrefix(out, "Opened http://127.0.0.1:1/") || len(*ran) != 1 || !strings.HasPrefix((*ran)[0], "xdg-open ") {
-		t.Errorf("web = %q, %v, ran %v", out, err, *ran)
+	if _, err := runCtx(context.Background(), env, "", "web", "--print"); err == nil {
+		t.Error("web --print still exists")
 	}
 	if _, err := runCtx(context.Background(), paths.Env{GOOS: "linux", Home: t.TempDir()}, "", "web"); err == nil {
 		t.Error("web without a daemon gave no error")

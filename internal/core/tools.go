@@ -14,17 +14,46 @@ import (
 	"github.com/osolmaz/WhatsAgent/internal/model"
 )
 
-// Caller is who calls a tool: the owner, through the CLI, or a checked-in session.
+// Caller is who calls a tool: the owner, through the CLI or the self-chat, or a checked-in
+// session. Only the core sets the unexported fields.
 type Caller struct {
 	Session string
 	owner   bool
+	// phone marks a command that the owner wrote in the self-chat, the only source of changes.
+	phone bool
+	// verified marks a run agent, which Config.Verify recognized by its process. Only a run agent
+	// reads chats that are not kept.
+	verified bool
 }
 
-// Owner is the caller for the owner's own CLI and self-chat commands.
+// Owner is the caller for the owner's own CLI.
 var Owner = Caller{Session: "owner", owner: true}
+
+// phoneOwner is the caller for a command that the owner wrote in the self-chat.
+var phoneOwner = Caller{Session: "owner", owner: true, phone: true}
+
+// isOwner reports whether caller is the owner in person, through the CLI or the self-chat, and
+// not the CLI acting for an agent session.
+func (caller Caller) isOwner() bool {
+	return caller.owner && caller.Session == Owner.Session
+}
 
 // ErrNotAllowed is returned when the send rules or routes keep a session from a chat.
 var ErrNotAllowed = errors.New("not allowed")
+
+// readable checks that caller may read chat as far as storage goes: everyone reads kept chats,
+// and only a run agent reads the others.
+func (c *Core) readable(ctx context.Context, caller Caller, chat string) error {
+	if caller.verified {
+		return nil
+	}
+	kept, err := c.st.Kept(ctx, chat)
+	if err != nil || kept {
+		return err
+	}
+	return fmt.Errorf("%w: WhatsAgent does not keep %s, and shows its messages only to the agents it runs; "+
+		"the owner can keep it with /keep in the self-chat", ErrNotAllowed, chat)
+}
 
 var phonePattern = regexp.MustCompile(`^\+?[0-9][0-9 ()-]{5,}$`)
 
@@ -135,6 +164,9 @@ func (c *Core) ReadChat(ctx context.Context, caller Caller, ref string, limit in
 	if !ok {
 		return ChatMessages{}, errHidden(caller, jid)
 	}
+	if err := c.readable(ctx, caller, jid); err != nil {
+		return ChatMessages{}, err
+	}
 	chat, err := c.st.Chat(ctx, jid)
 	if err != nil {
 		return ChatMessages{}, err
@@ -149,6 +181,9 @@ func (c *Core) visibleMessage(ctx context.Context, caller Caller, chat, id strin
 	if !ok {
 		return model.Message{}, errHidden(caller, chat)
 	}
+	if err := c.readable(ctx, caller, chat); err != nil {
+		return model.Message{}, err
+	}
 	m, found, err := c.st.Message(ctx, chat, id)
 	if err != nil {
 		return m, err
@@ -159,7 +194,8 @@ func (c *Core) visibleMessage(ctx context.Context, caller Caller, chat, id strin
 	return m, nil
 }
 
-// Search returns messages that contain query, in the chats that caller may read.
+// Search returns messages that contain query, in the chats that caller may read. Only a run agent
+// searches chats that are not kept.
 func (c *Core) Search(ctx context.Context, caller Caller, query, ref string, limit int) ([]model.Message, error) {
 	chat := ""
 	if ref != "" {
@@ -169,7 +205,7 @@ func (c *Core) Search(ctx context.Context, caller Caller, query, ref string, lim
 		}
 		chat = jid
 	}
-	found, err := c.st.Search(ctx, query, chat, limit)
+	found, err := c.st.Search(ctx, query, chat, limit, caller.verified)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +240,7 @@ func (c *Core) Send(ctx context.Context, caller Caller, ref, text string) (strin
 		return "", err
 	}
 	text = c.prefixed(ctx, caller, jid, text)
-	if caller != Owner && forged(text) {
+	if !caller.isOwner() && forged(text) {
 		return "", errForged
 	}
 	action := fmt.Sprintf("send this message to %s:\n%s", c.describeChat(ctx, jid), text)
@@ -217,7 +253,7 @@ func (c *Core) Send(ctx context.Context, caller Caller, ref, text string) (strin
 // prefixed puts the agent prefix in front of a message from an agent session. The owner's own
 // messages go out as written.
 func (c *Core) prefixed(ctx context.Context, caller Caller, jid, text string) string {
-	if caller == Owner {
+	if caller.isOwner() {
 		return text
 	}
 	return withPrefix(c.prefixFor(ctx, caller.Session, jid), text)
@@ -286,11 +322,15 @@ func senderLabel(m model.Message) string {
 	return m.Sender
 }
 
-// DownloadMedia saves the media of a stored message in the media folder and returns its path.
+// DownloadMedia saves the media of a stored message in the media folder and returns its path. It
+// works only in kept chats, because WhatsAgent writes nothing of other chats to disk.
 func (c *Core) DownloadMedia(ctx context.Context, caller Caller, ref, id string) (string, error) {
 	jid, err := c.resolveChat(ctx, ref)
 	if err != nil {
 		return "", err
+	}
+	if err := c.readable(ctx, Caller{}, jid); err != nil {
+		return "", fmt.Errorf("download_media writes a file, so it works only in kept chats: %w", err)
 	}
 	m, err := c.visibleMessage(ctx, caller, jid, id)
 	if err != nil {
@@ -391,7 +431,8 @@ func (c *Core) setRoute(ctx context.Context, route model.Route, mode model.Mode)
 	}
 	c.wakeAll()
 	chat, _ := c.st.Chat(ctx, route.Chat)
-	return fmt.Sprintf("%s now goes to %s in the %s mode.", chatLabel(chat), route.Session, mode), nil
+	return fmt.Sprintf("%s now goes to %s in the %s mode.%s", chatLabel(chat), route.Session, mode,
+		c.keptNote(ctx, route)), nil
 }
 
 // chatLabel names a chat for the owner, with "every chat" for "*".
@@ -407,10 +448,13 @@ func (c *Core) Chats(ctx context.Context, query string, limit int) ([]model.Chat
 	return c.st.Chats(ctx, query, limit)
 }
 
-// Export returns every stored message of a chat, oldest first. Only the owner may export.
+// Export returns every stored message of a kept chat, oldest first. Only the owner may export.
 func (c *Core) Export(ctx context.Context, ref string) ([]model.Message, error) {
 	jid, err := c.resolveChat(ctx, ref)
 	if err != nil {
+		return nil, err
+	}
+	if err := c.readable(ctx, Owner, jid); err != nil {
 		return nil, err
 	}
 	return c.st.Messages(ctx, jid, 0)

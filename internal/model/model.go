@@ -82,7 +82,6 @@ type Update struct {
 type Event struct {
 	Seq      int64      `json:"seq"`
 	Kind     UpdateKind `json:"kind"`
-	Live     bool       `json:"live"`
 	ChatName string     `json:"chat_name"`
 	Message  Message    `json:"message"`
 }
