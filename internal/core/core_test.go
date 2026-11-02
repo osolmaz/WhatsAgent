@@ -202,14 +202,23 @@ func newHarness(t *testing.T) *harness {
 func newHarnessWith(t *testing.T, change func(*Config)) *harness {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	st, err := store.Open(ctx, filepath.Join(t.TempDir(), "w.db"))
+	dir, mediaDir := t.TempDir(), t.TempDir()
+	st, err := store.Open(ctx, filepath.Join(dir, "w.db"))
 	if err != nil {
+		cancel()
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
 	h := &harness{t: t, ctx: ctx, wa: &fakeWA{sent: make(chan sentText, 100)}, st: st, homes: map[string]*fakePusher{},
 		agents: map[string]*fakeAgent{}}
+	// The core's goroutines end before the store closes and before the folders go, which the
+	// cleanups registered earlier remove later.
+	t.Cleanup(func() {
+		cancel()
+		if h.core != nil && !h.core.Wait(5*time.Second) {
+			t.Error("the core's goroutines did not end")
+		}
+		st.Close()
+	})
 	factory := func(name string) AgentFactory {
 		return func(_ context.Context, host AgentHost) (Pusher, error) {
 			if name == "broken" {
@@ -221,7 +230,7 @@ func newHarnessWith(t *testing.T, change func(*Config)) *harness {
 			return p, nil
 		}
 	}
-	cfg := Config{Store: st, WhatsApp: h.wa, MediaDir: t.TempDir(), Location: time.UTC,
+	cfg := Config{Store: st, WhatsApp: h.wa, MediaDir: mediaDir, Location: time.UTC,
 		Homes:       map[string]AgentFactory{"claude": factory("claude"), "codex": factory("codex"), "broken": factory("broken")},
 		ChatAgent:   h.startAgent,
 		StatusDelay: 10 * time.Millisecond, Heartbeat: 20 * time.Millisecond,

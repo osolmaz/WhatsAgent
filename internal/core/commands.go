@@ -451,11 +451,11 @@ func (c *Core) startHome(ctx context.Context, harness string) error {
 	if pusher == nil {
 		return nil // home gets its messages through its own WhatsAgent channel
 	}
-	go func() {
+	c.spawn(func() {
 		if err := c.serve(homeCtx, &subscriber{name: homeName, push: harness, pusher: pusher, verified: true}); err != nil {
 			c.say("Home stopped: " + err.Error())
 		}
-	}()
+	})
 	return nil
 }
 

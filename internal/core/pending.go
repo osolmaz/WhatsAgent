@@ -83,11 +83,11 @@ func (c *Core) showIn(chat, text string, media *model.Media) {
 		c.queue(outgoing{text: text, media: media})
 		return
 	}
-	go func() {
+	c.spawn(func() {
 		if _, err := c.send(c.ctx, chat, model.Outgoing{Text: text, Media: media}, true); err != nil {
 			c.log.Warn("send a WhatsAgent message", "chat", chat, "err", err)
 		}
-	}()
+	})
 }
 
 // close removes the question with code and returns it, or nil when none waits.

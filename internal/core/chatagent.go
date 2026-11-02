@@ -137,12 +137,12 @@ func (c *Core) startChatAgent(ctx context.Context, chat, name string, cursor int
 	if pusher == nil {
 		return nil // the agent gets its messages through its own WhatsAgent channel
 	}
-	go func() {
+	c.spawn(func() {
 		defer c.dropAgent(name, agent)
 		if err := c.serve(agentCtx, &subscriber{name: name, push: "agent", pusher: pusher, verified: true}); err != nil {
 			c.log.Warn("chat agent stopped", "session", name, "err", err)
 		}
-	}()
+	})
 	return nil
 }
 

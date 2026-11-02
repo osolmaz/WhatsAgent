@@ -87,6 +87,7 @@ func Run(ctx context.Context, opts Options) error {
 		enabled: func() bool { v, _ := st.Setting(ctx, core.SettingBrowser); return v != "off" }}
 	c, adapter := build(opts, st, client, terminals, opener, pageURL)
 	defer adapter.Close()
+	defer waitForCore(ctx, c, opts.Log, 10*time.Second)
 	openPage := func() bool { return browser.Open(pageURL) }
 	server := &http.Server{Handler: api.NewServer(c, openPage), ReadHeaderTimeout: 10 * time.Second,
 		ConnContext: peer.ConnContext}
@@ -125,6 +126,14 @@ func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Hos
 		PageURL:   pageURL,
 	})
 	return c, adapter
+}
+
+// waitForCore waits for the core's goroutines once ctx has ended. Run defers it after the API
+// server closes and before the store does, so that no write reaches a closed store.
+func waitForCore(ctx context.Context, c *core.Core, log *slog.Logger, timeout time.Duration) {
+	if ctx.Err() != nil && !c.Wait(timeout) {
+		log.Warn("the core's goroutines did not end in time", "timeout", timeout)
+	}
 }
 
 // verifier recognizes the MCP server of a run agent: its process descends from the process that
