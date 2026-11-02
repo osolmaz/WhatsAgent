@@ -113,7 +113,7 @@ func build(opts Options, st *store.Store, client *wa.Client, terminals *term.Hos
 		SendGap: 2 * time.Second, StatusDelay: 3 * time.Second, Heartbeat: 30 * time.Second,
 		Homes: map[string]core.AgentFactory{
 			"claude": func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
-				return home.StartClaude(ctx, claudeOptions(opts, terminals, host.Session, homeDir, "home", home.Instructions, nil), host)
+				return home.StartClaude(ctx, claudeOptions(opts, terminals, host.Session, homeDir, "home", home.Instructions), host)
 			},
 			"codex": func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
 				format := func(events []model.Event) string { return home.Prompt(events, selfChat, time.Local) }
@@ -135,15 +135,13 @@ func verifier(pidOf func(session string) int) func(ctx context.Context, session 
 	}
 }
 
-// chatAgents starts each chat's own agent on Claude Code, with no built-in tools other than web
-// search and fetch, and with WhatsAgent as its only MCP server. The agent can then read only
-// what its chat's mode shows it.
+// chatAgents starts each chat's own agent on Claude Code, with all of Claude Code's tools and with
+// WhatsAgent as its only MCP server. Its WhatsAgent tools show it only what its chat's mode shows.
 func chatAgents(opts Options, terminals *term.Host, opener *pageOpener) core.AgentFactory {
 	return func(ctx context.Context, host core.AgentHost) (core.Pusher, error) {
 		dir := filepath.Join(opts.Dirs.Data, "agents", host.Session)
 		instructions := home.ChatInstructions(host.Name, host.ChatName, host.Chat)
-		o := claudeOptions(opts, terminals, host.Session, dir, host.ChatName+" ("+host.Session+")", instructions,
-			[]string{"WebSearch", "WebFetch"})
+		o := claudeOptions(opts, terminals, host.Session, dir, host.ChatName+" ("+host.Session+")", instructions)
 		pusher, err := home.StartClaude(ctx, o, host)
 		if err == nil {
 			opener.agentStarted()
@@ -153,11 +151,10 @@ func chatAgents(opts Options, terminals *term.Host, opener *pageOpener) core.Age
 }
 
 // claudeOptions configures the agent of session on Claude Code, in a terminal.
-func claudeOptions(opts Options, terminals *term.Host, session, dir, title, instructions string,
-	tools []string) home.ClaudeOptions {
+func claudeOptions(opts Options, terminals *term.Host, session, dir, title, instructions string) home.ClaudeOptions {
 	userHome, _ := os.UserHomeDir()
 	return home.ClaudeOptions{Terminals: terminals, Bin: opts.ClaudeBin, Dir: dir, Title: title,
-		Instructions: instructions, Tools: tools, MCPConfig: mcpConfig(opts.Bin, session),
+		Instructions: instructions, MCPConfig: mcpConfig(opts.Bin, session),
 		ConfigDir: home.ConfigDir(os.Getenv, userHome), Log: opts.Log}
 }
 

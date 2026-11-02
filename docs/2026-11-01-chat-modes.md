@@ -108,7 +108,7 @@ A route links a chat to a session, as before. `/route <chat> <session> [<mode>]`
 
 A chat without a route gets its own chat agent. WhatsAgent starts it when the chat's mode first shows the agent a message, for example when the owner opens a window. A chat agent runs on Claude Code with its own folder under the WhatsAgent data folder, keeps its harness session across restarts, and stops after 15 minutes without new messages and without an open window. The next message that its mode shows starts it again on the same session.
 
-Each chat gets a separate agent, so what one chat lets the agents see never reaches another chat. A chat agent has no shell or file tools, only web search, web fetch and the WhatsAgent MCP tools, and WhatsAgent is its only MCP server. Its WhatsAgent tools check in as its own session, so `read_chat`, `search`, `react` and `download_media` show it only what its chat's mode shows, and it cannot read the self-chat or any other chat. It runs as an interactive Claude Code session in a terminal, gets its messages through its WhatsAgent channel, and answers in its chat with the `send` tool, which adds the prefix. The owner can watch it and type into it on the browser page that `whatsagent web` opens.
+Each chat gets a separate agent, so what one chat lets the agents see never reaches another chat. A chat agent has all of Claude Code's tools, such as Bash and Monitor, so it can check a flight or a web page on a schedule, and WhatsAgent is its only MCP server. Its WhatsAgent tools check in as its own session, so `read_chat`, `search`, `react` and `download_media` show it only what its chat's mode shows, and it cannot read the self-chat or any other chat. It runs as an interactive Claude Code session in a terminal, gets its messages through its WhatsAgent channel, and answers in its chat with the `send` tool, which adds the prefix. The owner can watch it and type into it on the browser page that `whatsagent web` opens.
 
 ## Enforcement and limits
 
@@ -120,7 +120,7 @@ The daemon enforces the modes for every session that is not the owner:
 - Windows are stored, so they survive a daemon restart. A window whose end passed while the daemon was down closes at the next check, with its end message.
 - A message that WhatsApp delivers twice runs its trigger once.
 
-These guarantees bind sessions through their WhatsAgent tools. The owner, the `whatsagent` CLI and home keep the owner's rights and read every chat. Home is the owner's assistant in the self-chat, so it can answer questions such as "what did Sam say today?". A routed session that can run shell commands as the owner's user can still reach every chat through the CLI or the database. The modes are a hard limit only for chat agents and for sessions without shell access.
+These guarantees bind sessions through their WhatsAgent tools. The owner, the `whatsagent` CLI and home keep the owner's rights. Home is the owner's assistant in the self-chat, so it can answer questions such as "what did Sam say today?". A session that can run shell commands as the owner's user, which includes every chat agent, can still read the kept chats and send as the owner through the CLI, as any program of the owner's user can. The [message storage specification](2026-11-02-message-storage.md) keeps the other chats out of the CLI and the database, so the modes are a hard limit for them.
 
 ## Risks
 

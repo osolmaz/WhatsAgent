@@ -120,7 +120,7 @@ Routes point at session names, so a route survives when its session restarts. A 
 
 ## Routes
 
-WhatsAgent stores every chat, and home can read them all when asked ("what did Sam say today?"). Which session handles a chat, and what it sees of it, is up to the owner: each chat has a mode, and the [chat modes specification](2026-11-01-chat-modes.md) defines the modes, the window mode's lifecycle and the chat agents.
+WhatsAgent stores the kept chats and holds the others in memory for a day, as the [message storage specification](2026-11-02-message-storage.md) defines, and home can read them all when asked ("what did Sam say today?"). Which session handles a chat, and what it sees of it, is up to the owner: each chat has a mode, and the [chat modes specification](2026-11-01-chat-modes.md) defines the modes, the window mode's lifecycle and the chat agents.
 
 A route links one chat to one session. Each chat has at most one route, so it is always clear which session answers it. Owners who want everything in one place can send every chat to home with `/route * home`. A chat without a route gets its own chat agent, which WhatsAgent runs. Setting a route also sets the chat's mode, which defaults to `all`. A route can also set its own prefix.
 
@@ -211,7 +211,7 @@ These rules live in the WhatsAgent daemon, so no prompt can change them.
 - Sends are spaced at least 2 seconds apart. whatsmeow is an unofficial client, and WhatsApp can ban numbers that send automated messages.
 - Only the owner's user can open the daemon's socket, and each checked-in session gets its own token.
 
-These rules bind the MCP tools. The `whatsagent` CLI acts as the owner, so a session that may run shell commands as the owner's user can reach every chat through it, as it could read the session store itself. Send rules keep a well-behaved agent and a prompt injection inside its tools in bounds; a session the owner does not trust needs a sandbox without shell access to the owner's account.
+These rules bind the MCP tools. The `whatsagent` CLI acts as the owner, so a session that may run shell commands as the owner's user, such as a chat agent, can read the kept chats and send as the owner through it, as it could read the session store itself. Send rules keep a well-behaved agent and a prompt injection inside its tools in bounds; a session the owner does not trust needs a sandbox without shell access to the owner's account.
 
 ## Delivery guarantees
 

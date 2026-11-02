@@ -50,7 +50,9 @@ func ChatInstructions(name, label, chat string) string {
 		"whatsagent send tool and this chat_id, short and plain for a phone screen, and write only the message: "+
 		"WhatsAgent puts your name in front. Most messages in a group need no answer; send nothing for them. "+
 		"Use the whatsagent read_chat tool with this chat_id to read what you may read of the chat, for example "+
-		"the recent messages when the owner calls you. react and download_media work in this chat too.",
+		"the recent messages when the owner calls you. react and download_media work in this chat too. "+
+		"You have Claude Code's tools. When the owner asks you to watch something over time, such as a flight "+
+		"or a web page, check it with the Monitor tool or a background command, and report in the chat with send.",
 		name, label, chat)
 }
 
@@ -93,8 +95,6 @@ type ClaudeOptions struct {
 	Title string
 	// Instructions are appended to Claude Code's system prompt.
 	Instructions string
-	// Tools, when set, limits Claude Code's built-in tools to these names.
-	Tools []string
 	// MCPConfig is the agent's only MCP configuration: the WhatsAgent server, checked in as the
 	// agent's session with channel pushes.
 	MCPConfig string
@@ -192,9 +192,6 @@ func args(opts ClaudeOptions, host *core.AgentHost, resume bool) []string {
 		"--strict-mcp-config", "--mcp-config", opts.MCPConfig}
 	if host.Auto {
 		a = append(a, "--permission-mode", "auto")
-	}
-	if len(opts.Tools) > 0 {
-		a = append(a, "--tools", strings.Join(opts.Tools, ","))
 	}
 	if resume {
 		a = append(a, "--resume", id)

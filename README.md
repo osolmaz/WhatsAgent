@@ -47,7 +47,7 @@ In your "Message Yourself" chat, send `/help` for the commands. The most useful 
 
 Each chat has a mode that decides what an agent sees of it. In the default `window` mode, the agent sees nothing until you wake it in the chat with its name and a wake phrase, such as "Bob, wake up" or "Bob start". It can then read the last 30 minutes and every new message for an hour. Naming it again extends that hour, and "Bob stop watching" ends it. The agent says in the chat when it starts monitoring and when it is done. Only your own messages can wake it, never other people's.
 
-The `keyword` mode shows the agent only your messages that name it, `all` shows everything, and `off` shows nothing. A chat without a route gets its own agent, which has only WhatsAgent's tools and web search, so it can read only what the chat's mode shows. `/window` changes the window length, the lookback, the wake and stop phrases, and the two messages. The [chat modes specification](docs/2026-11-01-chat-modes.md) has the details.
+The `keyword` mode shows the agent only your messages that name it, `all` shows everything, and `off` shows nothing. A chat without a route gets its own agent, which has all of Claude Code's tools, and its WhatsAgent tools show it only what the chat's mode shows. `/window` changes the window length, the lookback, the wake and stop phrases, and the two messages. The [chat modes specification](docs/2026-11-01-chat-modes.md) has the details.
 
 ### Agent messages
 
