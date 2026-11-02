@@ -42,12 +42,37 @@ var toolList = []map[string]any{
 	},
 	{
 		"name":        "send",
-		"description": "Send a text message, a file, or a file with the text as its caption to a WhatsApp chat. WhatsAgent puts the agent prefix, such as the agents' name, in front of the text, so write only the message. An answer in a chat that sent you a message in the last 15 minutes goes out at once; a message to any other chat waits for the owner's yes, which WhatsAgent asks for itself with the exact text and file. The owner's send rules can change both; the result says what happened.",
+		"description": "Send a text message, a file, or a file with the text as its caption to a WhatsApp chat, optionally as a reply to one of the chat's messages. WhatsAgent puts the agent prefix, such as the agents' name, in front of the text, so write only the message. To mention someone, write @ and their phone number, such as @15551234567; WhatsApp shows their name. An answer in a chat that sent you a message in the last 15 minutes goes out at once; a message to any other chat waits for the owner's yes, which WhatsAgent asks for itself with the exact text and file. The owner's send rules can change both; the result says what happened.",
 		"inputSchema": schema(map[string]any{
-			"chat": str(chatHelp),
-			"text": str("The message text, or the caption of the file."),
-			"file": str("Optional path of a file to send, up to 100 MB; a relative path starts in your working folder. JPEG and PNG go as photos, MP4 as a video, Ogg/Opus as a voice message, MP3, M4A and AAC as audio, and anything else as a document. Audio has no caption in WhatsApp, so its text goes as a message before it."),
+			"chat":     str(chatHelp),
+			"text":     str("The message text, or the caption of the file."),
+			"file":     str("Optional path of a file to send, up to 100 MB; a relative path starts in your working folder. JPEG and PNG go as photos, MP4 as a video, Ogg/Opus as a voice message, MP3, M4A and AAC as audio, and anything else as a document. Audio has no caption in WhatsApp, so its text goes as a message before it."),
+			"reply_to": str("Optional ID of the message in this chat to answer, from the id= field of a message line. WhatsApp shows it quoted above the reply."),
 		}, "chat"),
+	},
+	{
+		"name":        "edit_message",
+		"description": "Change the text of a message that WhatsAgent sent for an agent. WhatsApp allows this for text messages up to 15 minutes old. The send rules apply as for send.",
+		"inputSchema": schema(map[string]any{
+			"chat":       str(chatHelp),
+			"message_id": str("The message ID."),
+			"text":       str("The new text. WhatsAgent puts the agent prefix in front, as for send."),
+		}, "chat", "message_id", "text"),
+	},
+	{
+		"name":        "delete_message",
+		"description": "Delete a message that WhatsAgent sent for an agent, for everyone in the chat. The send rules apply as for send.",
+		"inputSchema": schema(map[string]any{"chat": str(chatHelp), "message_id": str("The message ID.")}, "chat", "message_id"),
+	},
+	{
+		"name":        "forward_message",
+		"description": "Forward a message that you may read to a chat, as WhatsApp's forward does. A message with your prefix and the optional text goes first, so the chat sees who forwarded it. The send rules of the target chat apply as for send.",
+		"inputSchema": schema(map[string]any{
+			"chat":       str("The chat of the message. " + chatHelp),
+			"message_id": str("The message ID."),
+			"to":         str("The chat to forward it to."),
+			"text":       str("Optional comment that goes before the forwarded message."),
+		}, "chat", "message_id", "to"),
 	},
 	{
 		"name":        "react",

@@ -84,7 +84,7 @@ func (c *Core) showIn(chat, text string, media *model.Media) {
 		return
 	}
 	go func() {
-		if _, err := c.send(c.ctx, chat, text, media, true); err != nil {
+		if _, err := c.send(c.ctx, chat, model.Outgoing{Text: text, Media: media}, true); err != nil {
 			c.log.Warn("send a WhatsAgent message", "chat", chat, "err", err)
 		}
 	}()

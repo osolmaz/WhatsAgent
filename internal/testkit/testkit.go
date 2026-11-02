@@ -36,9 +36,13 @@ func ShortDir(t *testing.T) string {
 	return dir
 }
 
-// Sent is one message that the fake connection sent. File is the name of the file that a media
-// message carries, and Text is its caption.
-type Sent struct{ Chat, ID, Text, File string }
+// Sent is one message, edit or deletion that the fake connection sent. File is the name of the
+// file that a media message carries, and Text is its caption. Kind is "edit" or "revoke" for an
+// edit or a deletion of the message ID, and empty for a message.
+type Sent struct {
+	Chat, ID, Text, File, Kind string
+	Out                        model.Outgoing
+}
 
 // WhatsApp is a fake WhatsApp connection.
 type WhatsApp struct {
@@ -61,9 +65,25 @@ func (f *WhatsApp) NewID() string {
 	return fmt.Sprintf("S%d", f.n)
 }
 
-// SendText implements core.WhatsApp.
-func (f *WhatsApp) SendText(_ context.Context, chat, id, text string) error {
-	f.Sent <- Sent{Chat: chat, ID: id, Text: text}
+// Send implements core.WhatsApp.
+func (f *WhatsApp) Send(_ context.Context, chat, id string, out model.Outgoing) error {
+	s := Sent{Chat: chat, ID: id, Text: out.Text, Out: out}
+	if out.Media != nil {
+		s.File = out.Media.Filename
+	}
+	f.Sent <- s
+	return nil
+}
+
+// Edit implements core.WhatsApp.
+func (f *WhatsApp) Edit(_ context.Context, chat, id, text string) error {
+	f.Sent <- Sent{Chat: chat, ID: id, Text: text, Kind: "edit"}
+	return nil
+}
+
+// Revoke implements core.WhatsApp.
+func (f *WhatsApp) Revoke(_ context.Context, chat, _, id string) error {
+	f.Sent <- Sent{Chat: chat, ID: id, Kind: "revoke"}
 	return nil
 }
 
@@ -71,12 +91,6 @@ func (f *WhatsApp) SendText(_ context.Context, chat, id, text string) error {
 func (f *WhatsApp) Upload(_ context.Context, file model.File) (model.Media, error) {
 	return model.Media{Type: "document", MimeType: "application/octet-stream", Filename: file.Name,
 		Size: len(file.Data), Raw: file.Data}, nil
-}
-
-// SendMedia implements core.WhatsApp.
-func (f *WhatsApp) SendMedia(_ context.Context, chat, id string, media model.Media, caption string) error {
-	f.Sent <- Sent{Chat: chat, ID: id, Text: caption, File: media.Filename}
-	return nil
 }
 
 // React implements core.WhatsApp.

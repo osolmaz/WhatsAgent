@@ -143,7 +143,7 @@ func TestChannelSession(t *testing.T) {
 	c.wait(func(msg map[string]any) bool { return msg["error"] != nil && msg["id"] == nil })
 
 	time.Sleep(100 * time.Millisecond)
-	d.Receive("g@g.us", "please look", false)
+	look := d.Receive("g@g.us", "please look", false)
 	note := c.notification("notifications/claude/channel")
 	params, _ := note["params"].(map[string]any)
 	meta, _ := params["meta"].(map[string]any)
@@ -178,11 +178,11 @@ func TestChannelSession(t *testing.T) {
 	if err := os.WriteFile("plan.pdf", []byte("%PDF"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args := map[string]any{"chat": "Team", "text": "the plan", "file": "plan.pdf"}
+	args := map[string]any{"chat": "Team", "text": "the plan", "file": "plan.pdf", "reply_to": look.ID}
 	if text, _ := resultText(t, c.call("tools/call", map[string]any{"name": "send", "arguments": args})); !strings.HasPrefix(text, "sent") {
 		t.Errorf("send with a file = %q", text)
 	}
-	if s := d.Expect("the plan"); s.File != "plan.pdf" {
+	if s := d.Expect("the plan"); s.File != "plan.pdf" || s.Out.ReplyTo == nil {
 		t.Errorf("sent %+v", s)
 	}
 	args["file"] = "missing.pdf"

@@ -19,7 +19,11 @@ import (
 const self = "100@s.whatsapp.net"
 
 // sentText is one sent message; file names the file of a media message, whose caption is text.
-type sentText struct{ chat, id, text, file string }
+// kind is "edit" or "revoke" for an edit or a deletion of the message id.
+type sentText struct {
+	chat, id, text, file, kind string
+	out                        model.Outgoing
+}
 
 type fakeWA struct {
 	mu         sync.Mutex
@@ -47,8 +51,13 @@ func (f *fakeWA) Upload(_ context.Context, file model.File) (model.Media, error)
 		Raw: []byte("raw " + file.Name)}, nil
 }
 
-func (f *fakeWA) SendMedia(_ context.Context, chat, id string, media model.Media, caption string) error {
-	f.sent <- sentText{chat: chat, id: id, text: caption, file: media.Filename}
+func (f *fakeWA) Edit(_ context.Context, chat, id, text string) error {
+	f.sent <- sentText{chat: chat, id: id, text: text, kind: "edit"}
+	return nil
+}
+
+func (f *fakeWA) Revoke(_ context.Context, chat, sender, id string) error {
+	f.sent <- sentText{chat: chat, id: id, text: sender, kind: "revoke"}
 	return nil
 }
 
@@ -60,14 +69,18 @@ func (f *fakeWA) NewID() string {
 	f.n++
 	return fmt.Sprintf("S%d", f.n)
 }
-func (f *fakeWA) SendText(_ context.Context, chat, id, text string) error {
+func (f *fakeWA) Send(_ context.Context, chat, id string, out model.Outgoing) error {
 	f.mu.Lock()
 	err := f.failSend
 	f.mu.Unlock()
 	if err != nil {
 		return err
 	}
-	f.sent <- sentText{chat: chat, id: id, text: text}
+	s := sentText{chat: chat, id: id, text: out.Text, out: out}
+	if out.Media != nil {
+		s.file = out.Media.Filename
+	}
+	f.sent <- s
 	return nil
 }
 func (f *fakeWA) React(_ context.Context, chat, sender, id, emoji string) error {

@@ -43,11 +43,29 @@ type SearchArgs struct {
 	Limit int    `json:"limit,omitempty"`
 }
 
-// SendArgs are the arguments of send. With a file, the text is the file's caption.
+// SendArgs are the arguments of send. With a file, the text is the file's caption. ReplyTo is the
+// ID of the message in the chat that the message answers.
 type SendArgs struct {
-	Chat string      `json:"chat"`
-	Text string      `json:"text"`
-	File *model.File `json:"file,omitempty"`
+	Chat    string      `json:"chat"`
+	Text    string      `json:"text"`
+	File    *model.File `json:"file,omitempty"`
+	ReplyTo string      `json:"reply_to,omitempty"`
+}
+
+// EditArgs are the arguments of edit_message.
+type EditArgs struct {
+	Chat      string `json:"chat"`
+	MessageID string `json:"message_id"`
+	Text      string `json:"text"`
+}
+
+// ForwardArgs are the arguments of forward_message: the message, the chat to forward it to, and
+// an optional comment.
+type ForwardArgs struct {
+	Chat      string `json:"chat"`
+	MessageID string `json:"message_id"`
+	To        string `json:"to"`
+	Text      string `json:"text,omitempty"`
 }
 
 // ReadFile reads a file to send. The CLI and the WhatsAgent MCP server read it themselves, in the
@@ -69,13 +87,12 @@ func ReadFile(path string) (*model.File, error) {
 	return &model.File{Name: filepath.Base(path), Data: data}, err
 }
 
-func send(ctx context.Context, c *core.Core, caller core.Caller, a SendArgs) (any, error) {
-	if a.File != nil {
-		text, err := c.SendFile(ctx, caller, a.Chat, a.Text, *a.File)
+// textTool defines a tool whose result is one line of text.
+func textTool[A any](fn func(ctx context.Context, c *core.Core, caller core.Caller, a A) (string, error)) tool {
+	return define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a A) (any, error) {
+		text, err := fn(ctx, c, caller, a)
 		return Text{text}, err
-	}
-	text, err := c.Send(ctx, caller, a.Chat, a.Text)
-	return Text{text}, err
+	})
 }
 
 // MessageArgs name one message, with an emoji for react.
@@ -134,18 +151,26 @@ func tools() map[string]tool {
 		"search": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a SearchArgs) (any, error) {
 			return c.Search(ctx, caller, a.Query, a.Chat, limit(a.Limit, 30))
 		}),
-		"send": define(false, send),
-		"react": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (any, error) {
-			text, err := c.React(ctx, caller, a.Chat, a.MessageID, a.Emoji)
-			return Text{text}, err
+		"send": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a SendArgs) (string, error) {
+			return c.SendMessage(ctx, caller, a.Chat, core.Draft{Text: a.Text, File: a.File, ReplyTo: a.ReplyTo})
 		}),
-		"download_media": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (any, error) {
-			path, err := c.DownloadMedia(ctx, caller, a.Chat, a.MessageID)
-			return Text{path}, err
+		"edit_message": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a EditArgs) (string, error) {
+			return c.Edit(ctx, caller, a.Chat, a.MessageID, a.Text)
 		}),
-		"route_here": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a RouteArgs) (any, error) {
-			text, err := c.RouteHere(ctx, caller, a.Chat, a.Prefix, a.Mode)
-			return Text{text}, err
+		"delete_message": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (string, error) {
+			return c.Delete(ctx, caller, a.Chat, a.MessageID)
+		}),
+		"forward_message": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a ForwardArgs) (string, error) {
+			return c.Forward(ctx, caller, a.Chat, a.MessageID, a.To, a.Text)
+		}),
+		"react": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (string, error) {
+			return c.React(ctx, caller, a.Chat, a.MessageID, a.Emoji)
+		}),
+		"download_media": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a MessageArgs) (string, error) {
+			return c.DownloadMedia(ctx, caller, a.Chat, a.MessageID)
+		}),
+		"route_here": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a RouteArgs) (string, error) {
+			return c.RouteHere(ctx, caller, a.Chat, a.Prefix, a.Mode)
 		}),
 		"list_sessions": define(false, func(ctx context.Context, c *core.Core, _ core.Caller, _ struct{}) (any, error) {
 			return c.Sessions(ctx)
@@ -153,9 +178,8 @@ func tools() map[string]tool {
 		"list_chats": define(false, func(ctx context.Context, c *core.Core, _ core.Caller, a QueryArgs) (any, error) {
 			return c.Chats(ctx, a.Query, limit(a.Limit, 30))
 		}),
-		"command": define(false, func(ctx context.Context, c *core.Core, caller core.Caller, a CommandArgs) (any, error) {
-			text, err := c.Run(ctx, caller, a.Text)
-			return Text{text}, err
+		"command": textTool(func(ctx context.Context, c *core.Core, caller core.Caller, a CommandArgs) (string, error) {
+			return c.Run(ctx, caller, a.Text)
 		}),
 		"status": define(false, func(ctx context.Context, c *core.Core, _ core.Caller, _ struct{}) (any, error) {
 			return c.Status(ctx)
