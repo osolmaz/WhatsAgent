@@ -55,8 +55,14 @@ func TestOnlyRunAgentsReadChatsThatAreNotKept(t *testing.T) {
 		t.Errorf("Export of a kept chat = %d, %v", len(got), err)
 	}
 
+	if reply, _ := h.core.Run(ctx, Owner, "/sessions"); strings.Contains(reply, "run agent") {
+		t.Errorf("/sessions shows an impostor as a run agent: %q", reply)
+	}
 	token, _, _ := h.core.CheckIn(context.WithValue(ctx, runAgentKey{}, true), model.Session{Name: homeName})
 	home, _ := h.core.Caller(token)
+	if reply, _ := h.core.Run(ctx, Owner, "/sessions"); !strings.Contains(reply, "tools only, run agent") {
+		t.Errorf("/sessions does not show home as a run agent: %q", reply)
+	}
 	if read, err := h.core.ReadChat(ctx, home, "Team", 10); err != nil || !strings.Contains(texts(read.Messages), "secret plans") {
 		t.Errorf("home's read = %q, %v", texts(read.Messages), err)
 	}

@@ -183,6 +183,9 @@ type Session struct {
 	Online   bool      `json:"online"`
 	Push     string    `json:"push,omitempty"`
 	Waiting  int       `json:"waiting"`
+	// RunAgent is true while the session is an agent that WhatsAgent runs and recognized by its
+	// process, which may read chats that are not kept.
+	RunAgent bool `json:"run_agent,omitempty"`
 }
 
 var mentionPattern = regexp.MustCompile(`@(\d{5,})`)
