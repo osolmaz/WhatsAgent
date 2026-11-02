@@ -261,11 +261,22 @@ func (s *Store) Purge(ctx context.Context) (int64, error) {
 	return n, s.flush(ctx)
 }
 
-// flush moves every change into the database file and empties the write-ahead log, so text that
-// a deletion overwrote does not stay behind in the log.
+// flush rebuilds the database file from its live rows and empties the write-ahead log, so that no
+// deleted text stays behind. Secure delete zeroes the rows that a deletion removes, but a database
+// that ran without it, or rows that SQLite moved before, can leave old copies in free space and free
+// pages; VACUUM writes a new file without them, and the checkpoint moves it out of the log.
 func (s *Store) flush(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
-	return err
+	if _, err := s.db.ExecContext(ctx, "VACUUM"); err != nil {
+		return err
+	}
+	var busy, log, done int
+	if err := s.db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &done); err != nil {
+		return err
+	}
+	if busy != 0 {
+		return errors.New("the database was busy, so deleted text may stay in the write-ahead log until the next checkpoint")
+	}
+	return nil
 }
 
 // Prune deletes the messages in the recent buffer that were sent before cutoff, with their events
