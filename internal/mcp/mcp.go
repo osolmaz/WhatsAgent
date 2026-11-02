@@ -367,14 +367,15 @@ func (s *Server) callTool(ctx context.Context, params json.RawMessage) map[strin
 // and this server reads it, in the agent's working folder.
 func sendArgs(raw json.RawMessage) (api.SendArgs, error) {
 	var a struct {
-		Chat string `json:"chat"`
-		Text string `json:"text"`
-		File string `json:"file"`
+		Chat    string `json:"chat"`
+		Text    string `json:"text"`
+		File    string `json:"file"`
+		ReplyTo string `json:"reply_to"`
 	}
 	if err := json.Unmarshal(raw, &a); err != nil {
 		return api.SendArgs{}, err
 	}
-	args := api.SendArgs{Chat: a.Chat, Text: a.Text}
+	args := api.SendArgs{Chat: a.Chat, Text: a.Text, ReplyTo: a.ReplyTo}
 	if a.File == "" {
 		return args, nil
 	}

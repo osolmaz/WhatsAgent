@@ -124,8 +124,7 @@ func TestWithCaption(t *testing.T) {
 	if got := withCaption(&waE2E.Message{VideoMessage: &waE2E.VideoMessage{}}, "hi"); got.GetVideoMessage().GetCaption() != "hi" {
 		t.Error("video caption missing")
 	}
-	doc := withCaption(&waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{}}, "hi")
-	if doc.GetDocumentWithCaptionMessage().GetMessage().GetDocumentMessage().GetCaption() != "hi" || doc.DocumentMessage != nil {
+	if doc := withCaption(&waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{}}, "hi"); doc.GetDocumentMessage().GetCaption() != "hi" {
 		t.Errorf("document with a caption = %v", doc)
 	}
 	if got := withCaption(&waE2E.Message{AudioMessage: &waE2E.AudioMessage{}}, "hi"); got.GetAudioMessage() == nil {
@@ -140,10 +139,10 @@ func TestMediaWithoutConnection(t *testing.T) {
 		t.Error("Upload without a connection gave no error")
 	}
 	raw, _ := proto.Marshal(&waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{FileName: proto.String("a.txt")}})
-	if err := c.SendMedia(ctx, "1@g.us", c.NewID(), model.Media{Raw: raw}, "caption"); err == nil {
-		t.Error("SendMedia without a connection gave no error")
+	if err := c.Send(ctx, "1@g.us", c.NewID(), model.Outgoing{Text: "caption", Media: &model.Media{Raw: raw}}); err == nil {
+		t.Error("Send of media without a connection gave no error")
 	}
-	if err := c.SendMedia(ctx, "1@g.us", "id", model.Media{Raw: []byte{0xff, 0xff}}, ""); err == nil {
-		t.Error("SendMedia of bad bytes gave no error")
+	if err := c.Send(ctx, "1@g.us", "id", model.Outgoing{Media: &model.Media{Raw: []byte{0xff, 0xff}}}); err == nil {
+		t.Error("Send of bad media bytes gave no error")
 	}
 }

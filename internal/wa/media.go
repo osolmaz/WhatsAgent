@@ -69,7 +69,7 @@ func fileType(f model.File) (mimeType, mediaType string) {
 }
 
 // Upload encrypts a file and uploads it to WhatsApp's media servers. The media that it returns
-// can go out in any number of messages, through SendMedia.
+// can go out in any number of messages, through Send.
 func (c *Client) Upload(ctx context.Context, f model.File) (model.Media, error) {
 	mimeType, mediaType := fileType(f)
 	up, err := c.cli.Upload(ctx, f.Data, uploadTypes[mediaType])
@@ -78,15 +78,6 @@ func (c *Client) Upload(ctx context.Context, f model.File) (model.Media, error) 
 	}
 	raw, err := proto.Marshal(mediaMessage(f, mimeType, mediaType, up))
 	return model.Media{Type: mediaType, MimeType: mimeType, Filename: f.Name, Size: len(f.Data), Raw: raw}, err
-}
-
-// SendMedia sends uploaded media to chat with a caption, under the message ID id.
-func (c *Client) SendMedia(ctx context.Context, chat, id string, media model.Media, caption string) error {
-	var msg waE2E.Message
-	if err := proto.Unmarshal(media.Raw, &msg); err != nil {
-		return fmt.Errorf("decode media: %w", err)
-	}
-	return c.sendAs(ctx, chat, id, withCaption(&msg, caption))
 }
 
 // mediaMessage builds the message for an uploaded file. A photo carries its size and a small
@@ -132,8 +123,7 @@ func setUpload(part protoreflect.Message, mimeType string, up whatsmeow.UploadRe
 	}
 }
 
-// withCaption puts a caption on a media message. WhatsApp sends a document with a caption inside
-// a documentWithCaptionMessage, and audio has no caption.
+// withCaption puts a caption on a media message. Audio has no caption.
 func withCaption(msg *waE2E.Message, caption string) *waE2E.Message {
 	if caption == "" {
 		return msg
@@ -146,7 +136,6 @@ func withCaption(msg *waE2E.Message, caption string) *waE2E.Message {
 		msg.VideoMessage.Caption = text
 	case msg.DocumentMessage != nil:
 		msg.DocumentMessage.Caption = text
-		return &waE2E.Message{DocumentWithCaptionMessage: &waE2E.FutureProofMessage{Message: msg}}
 	}
 	return msg
 }

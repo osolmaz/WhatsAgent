@@ -11,7 +11,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/osolmaz/WhatsAgent/internal/model"
 )
@@ -178,21 +177,6 @@ func parseChat(chat string) (types.JID, error) {
 	return jid, nil
 }
 
-// SendText sends a text message with the given ID.
-func (c *Client) SendText(ctx context.Context, chat, id, text string) error {
-	return c.sendAs(ctx, chat, id, &waE2E.Message{Conversation: proto.String(text)})
-}
-
-// sendAs sends msg to chat under the message ID id.
-func (c *Client) sendAs(ctx context.Context, chat, id string, msg *waE2E.Message) error {
-	to, err := parseChat(chat)
-	if err != nil {
-		return err
-	}
-	_, err = c.cli.SendMessage(ctx, to, msg, whatsmeow.SendRequestExtra{ID: id})
-	return err
-}
-
 // React sends a reaction to the message id from sender in chat. An empty emoji removes it.
 func (c *Client) React(ctx context.Context, chat, sender, id, emoji string) error {
 	to, err := parseChat(chat)
@@ -206,11 +190,11 @@ func (c *Client) React(ctx context.Context, chat, sender, id, emoji string) erro
 
 // Download fetches and decrypts the media of an encoded message.
 func (c *Client) Download(ctx context.Context, raw []byte) ([]byte, error) {
-	var msg waE2E.Message
-	if err := proto.Unmarshal(raw, &msg); err != nil {
-		return nil, fmt.Errorf("decode stored message: %w", err)
+	msg, err := decode(raw)
+	if err != nil {
+		return nil, err
 	}
-	media := downloadable(&msg)
+	media := downloadable(msg)
 	if media == nil {
 		return nil, errors.New("the message has no media")
 	}

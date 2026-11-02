@@ -202,11 +202,22 @@ func TestSendWithoutConnection(t *testing.T) {
 	if c.SelfChat() != "15551234567@s.whatsapp.net" || c.OwnName() != "Owner" || c.NewID() == "" {
 		t.Error("account details are wrong")
 	}
-	if err := c.SendText(ctx, "1@g.us", c.NewID(), "x"); err == nil {
-		t.Error("SendText without a connection gave no error")
+	if err := c.Send(ctx, "1@g.us", c.NewID(), model.Outgoing{Text: "x"}); err == nil {
+		t.Error("Send without a connection gave no error")
 	}
-	if err := c.SendText(ctx, "no-at-sign", "id", "x"); err == nil {
-		t.Error("SendText to a bad chat gave no error")
+	if err := c.Send(ctx, "no-at-sign", "id", model.Outgoing{Text: "x"}); err == nil {
+		t.Error("Send to a bad chat gave no error")
+	}
+	if err := c.Edit(ctx, "1@g.us", "ID", "new"); err == nil {
+		t.Error("Edit without a connection gave no error")
+	}
+	if err := c.Revoke(ctx, "1@g.us", "2@s.whatsapp.net", "ID"); err == nil {
+		t.Error("Revoke without a connection gave no error")
+	}
+	for _, err := range []error{c.Edit(ctx, "bad", "ID", "x"), c.Revoke(ctx, "bad", "", "ID"), c.Revoke(ctx, "1@g.us", "bad", "ID")} {
+		if err == nil {
+			t.Error("a bad address gave no error")
+		}
 	}
 	if err := c.React(ctx, "1@g.us", "2@s.whatsapp.net", "ID", "👀"); err == nil {
 		t.Error("React without a connection gave no error")

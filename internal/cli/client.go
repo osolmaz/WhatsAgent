@@ -114,28 +114,31 @@ func newCommand(env paths.Env) *cobra.Command {
 }
 
 func newSend(env paths.Env) *cobra.Command {
-	var to, text, file, session string
+	var to, text, file, replyTo, session string
 	cmd := &cobra.Command{
-		Use:   "send --to <chat> [--text <text>] [--file <path>] [--session <name>]",
+		Use:   "send --to <chat> [--text <text>] [--file <path>] [--reply-to <id>] [--session <name>]",
 		Short: "Send a message or a file as the owner, or for an agent session with --session",
 		Long: "Send a message; the text comes from --text or, without --file, from standard input. With\n" +
 			"--file, WhatsAgent sends the file with the text as its caption: JPEG and PNG as photos, MP4 as\n" +
 			"a video, Ogg/Opus as a voice message, MP3, M4A and AAC as audio, and other files as documents.\n" +
-			"Without --session it goes out exactly as written. With --session it is an agent's message,\n" +
-			"and WhatsAgent puts the agent prefix (see /prefix) in front, so the agent writes only the\n" +
-			"message. The CLI keeps the owner's rights either way, so the send rules do not apply.",
+			"@ and a phone number in the text mentions that person. Without --session it goes out exactly\n" +
+			"as written. With --session it is an agent's message, and WhatsAgent puts the agent prefix\n" +
+			"(see /prefix) in front, so the agent writes only the message. The CLI keeps the owner's\n" +
+			"rights either way, so the send rules do not apply.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			args, err := sendInput(cmd.InOrStdin(), to, text, file)
 			if err != nil {
 				return err
 			}
+			args.ReplyTo = replyTo
 			return printAgentText(cmd, env, session, "send", args)
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "the chat: a JID, a phone number, \"self\" or part of its name")
 	cmd.Flags().StringVar(&text, "text", "", "the message text, or the caption of the file")
 	cmd.Flags().StringVar(&file, "file", "", "a file to send, up to 100 MB")
+	cmd.Flags().StringVar(&replyTo, "reply-to", "", "the ID of the message in the chat to answer")
 	cmd.Flags().StringVar(&session, "session", "", "send as this agent session, with the agent prefix")
 	_ = cmd.MarkFlagRequired("to")
 	return cmd
@@ -158,22 +161,61 @@ func sendInput(stdin io.Reader, to, text, path string) (api.SendArgs, error) {
 	return args, err
 }
 
-func newReact(env paths.Env) *cobra.Command {
-	var args api.MessageArgs
-	cmd := &cobra.Command{
-		Use:   "react --chat <chat> --id <message id> --emoji <emoji>",
-		Short: "React to a message as the owner",
-		Args:  cobra.NoArgs,
+// flag is one string flag of a tool command, which fills one field of the tool's arguments.
+type flag struct {
+	name, usage string
+	value       *string
+	required    bool
+}
+
+// toolCommand returns a command that calls tool as the owner, with args filled from the flags,
+// and prints the tool's text result.
+func toolCommand(env paths.Env, use, short, tool string, args any, flags ...flag) *cobra.Command {
+	cmd := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return printText(cmd, env, "react", args)
-		},
+			return printText(cmd, env, tool, args)
+		}}
+	for _, f := range flags {
+		cmd.Flags().StringVar(f.value, f.name, "", f.usage)
+		if f.required {
+			_ = cmd.MarkFlagRequired(f.name)
+		}
 	}
-	cmd.Flags().StringVar(&args.Chat, "chat", "", "the chat")
-	cmd.Flags().StringVar(&args.MessageID, "id", "", "the message ID")
-	cmd.Flags().StringVar(&args.Emoji, "emoji", "", "the emoji; empty removes the reaction")
-	_ = cmd.MarkFlagRequired("chat")
-	_ = cmd.MarkFlagRequired("id")
 	return cmd
+}
+
+// messageFlags are the flags that name one message.
+func messageFlags(chat, id *string) []flag {
+	return []flag{{"chat", "the chat of the message", chat, true}, {"id", "the message ID", id, true}}
+}
+
+func newReact(env paths.Env) *cobra.Command {
+	var a api.MessageArgs
+	return toolCommand(env, "react --chat <chat> --id <message id> --emoji <emoji>", "React to a message as the owner",
+		"react", &a, append(messageFlags(&a.Chat, &a.MessageID),
+			flag{"emoji", "the emoji; empty removes the reaction", &a.Emoji, false})...)
+}
+
+func newEdit(env paths.Env) *cobra.Command {
+	var a api.EditArgs
+	return toolCommand(env, "edit --chat <chat> --id <message id> --text <text>",
+		"Change the text of one of the owner's messages, up to 15 minutes after it was sent", "edit_message", &a,
+		append(messageFlags(&a.Chat, &a.MessageID), flag{"text", "the new text", &a.Text, true})...)
+}
+
+func newDelete(env paths.Env) *cobra.Command {
+	var a api.MessageArgs
+	return toolCommand(env, "delete --chat <chat> --id <message id>",
+		"Delete a message for everyone: the owner's own, or anyone's in a group the owner administers",
+		"delete_message", &a, messageFlags(&a.Chat, &a.MessageID)...)
+}
+
+func newForward(env paths.Env) *cobra.Command {
+	var a api.ForwardArgs
+	return toolCommand(env, "forward --chat <chat> --id <message id> --to <chat> [--text <comment>]",
+		"Forward a message to another chat, after an optional comment", "forward_message", &a,
+		append(messageFlags(&a.Chat, &a.MessageID), flag{"to", "the chat to forward it to", &a.To, true},
+			flag{"text", "a comment that goes before the forwarded message", &a.Text, false})...)
 }
 
 func newMedia(env paths.Env) *cobra.Command {

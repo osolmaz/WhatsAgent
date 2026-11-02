@@ -92,6 +92,27 @@ func TestOwnerTools(t *testing.T) {
 	if s := d.Expect("for an agent"); s.Text != "🤖 *Agent*: for an agent" {
 		t.Errorf("agent send = %q", s.Text)
 	}
+	// The owner answers the message, edits the answer, forwards it and deletes it.
+	if err := c.Tool(ctx, "", "send", api.SendArgs{Chat: "g@g.us", Text: "answer", ReplyTo: "M1"}, &text); err != nil {
+		t.Fatal(err)
+	}
+	answer := d.Expect("answer")
+	if answer.Out.ReplyTo == nil || answer.Out.ReplyTo.ID != "M1" {
+		t.Errorf("reply %+v", answer.Out)
+	}
+	for _, call := range []struct {
+		tool string
+		args any
+	}{
+		{"edit_message", api.EditArgs{Chat: "g@g.us", MessageID: answer.ID, Text: "better answer"}},
+		{"forward_message", api.ForwardArgs{Chat: "g@g.us", MessageID: answer.ID, To: "self"}},
+		{"delete_message", api.MessageArgs{Chat: "g@g.us", MessageID: answer.ID}},
+	} {
+		if err := c.Tool(ctx, "", call.tool, call.args, &text); err != nil {
+			t.Errorf("%s: %v", call.tool, err)
+		}
+		d.Expect("")
+	}
 	file := &model.File{Name: "r.pdf", Data: []byte("%PDF")}
 	if err := c.Tool(ctx, "", "send", api.SendArgs{Chat: "g@g.us", Text: "the report", File: file}, &text); err != nil {
 		t.Fatal(err)

@@ -20,10 +20,14 @@ type WhatsApp interface {
 	SelfChat() string
 	OwnName() string
 	NewID() string
-	SendText(ctx context.Context, chat, id, text string) error
-	// Upload uploads a file once, and SendMedia sends the result to a chat with a caption.
+	// Send sends one message under the message ID id.
+	Send(ctx context.Context, chat, id string, out model.Outgoing) error
+	// Upload uploads a file once, for any number of messages to carry.
 	Upload(ctx context.Context, f model.File) (model.Media, error)
-	SendMedia(ctx context.Context, chat, id string, media model.Media, caption string) error
+	// Edit replaces the text of the owner's message id, and Revoke deletes a message for everyone:
+	// the owner's own when sender is "", or sender's in a group that the owner administers.
+	Edit(ctx context.Context, chat, id, text string) error
+	Revoke(ctx context.Context, chat, sender, id string) error
 	React(ctx context.Context, chat, sender, id, emoji string) error
 	Download(ctx context.Context, raw []byte) ([]byte, error)
 	ChatName(ctx context.Context, jid string) string
@@ -203,7 +207,7 @@ func (c *Core) runOutbox(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case o := <-c.outbox:
-			if _, err := c.send(ctx, c.wa.SelfChat(), o.text, o.media, !o.private); err != nil {
+			if _, err := c.send(ctx, c.wa.SelfChat(), model.Outgoing{Text: o.text, Media: o.media}, !o.private); err != nil {
 				c.log.Warn("send to self-chat", "err", err)
 			}
 		}
@@ -290,13 +294,13 @@ func (c *Core) flushStatus() {
 
 // sendText sends text to chat, spacing sends by SendGap, and stores the message as WhatsAgent's.
 func (c *Core) sendText(ctx context.Context, chat, text string) (string, error) {
-	return c.send(ctx, chat, text, nil, true)
+	return c.send(ctx, chat, model.Outgoing{Text: text}, true)
 }
 
-// send sends text to chat, with media when media is not nil, and then text is the caption. It
-// spaces sends by SendGap, and stores the message as WhatsAgent's when store is true.
-func (c *Core) send(ctx context.Context, chat, text string, media *model.Media, store bool) (string, error) {
-	text, err := c.sendCaption(ctx, chat, text, media, store)
+// send sends out to chat, spacing sends by SendGap, and stores the message as WhatsAgent's when
+// store is true.
+func (c *Core) send(ctx context.Context, chat string, out model.Outgoing, store bool) (string, error) {
+	out, err := c.sendCaption(ctx, chat, out, store)
 	if err != nil {
 		return "", err
 	}
@@ -310,39 +314,42 @@ func (c *Core) send(ctx context.Context, chat, text string, media *model.Media, 
 	if err := c.st.RecordSent(ctx, id, chat, now); err != nil {
 		return "", err
 	}
-	if err := c.transmit(ctx, chat, id, text, media); err != nil {
+	if err := c.wa.Send(ctx, chat, id, out); err != nil {
 		return "", err
 	}
 	c.lastSend = time.Now()
 	if store {
-		c.storeSent(ctx, model.Message{Chat: chat, ID: id, Time: now, Text: text}, media)
+		c.storeSent(ctx, model.Message{Chat: chat, ID: id, Time: now}, out)
 	}
 	return id, nil
 }
 
 // sendCaption sends the caption of media that WhatsApp shows without one, such as audio, as a
-// message of its own before the media. It returns the caption that the media keeps.
-func (c *Core) sendCaption(ctx context.Context, chat, text string, media *model.Media, store bool) (string, error) {
-	if media == nil || media.Captioned() || text == "" {
-		return text, nil
+// message of its own before the media, as the answer and with the mentions. It returns what is
+// left to send.
+func (c *Core) sendCaption(ctx context.Context, chat string, out model.Outgoing, store bool) (model.Outgoing, error) {
+	if out.Media == nil || out.Media.Captioned() || out.Text == "" {
+		return out, nil
 	}
-	_, err := c.send(ctx, chat, text, nil, store)
-	return "", err
-}
-
-func (c *Core) transmit(ctx context.Context, chat, id, text string, media *model.Media) error {
-	if media == nil {
-		return c.wa.SendText(ctx, chat, id, text)
-	}
-	return c.wa.SendMedia(ctx, chat, id, *media, text)
+	_, err := c.send(ctx, chat, model.Outgoing{Text: out.Text, ReplyTo: out.ReplyTo, Mentions: out.Mentions}, store)
+	return model.Outgoing{Media: out.Media}, err
 }
 
 // storeSent stores a message that WhatsAgent sent. A stored file keeps its encoded message, so
 // download_media can fetch it again.
-func (c *Core) storeSent(ctx context.Context, sent model.Message, media *model.Media) {
+func (c *Core) storeSent(ctx context.Context, sent model.Message, out model.Outgoing) {
 	sent.Sender, sent.SenderName, sent.FromMe, sent.Role = c.wa.SelfChat(), c.wa.OwnName(), true, model.RoleAgent
+	sent.Text = out.Text
+	media := out.Media
+	if f := out.Forward; f != nil {
+		sent.Text, sent.Forwarded = f.Text, true
+		media = &model.Media{Type: f.MediaType, MimeType: f.MimeType, Filename: f.Filename, Raw: f.Raw}
+	}
 	if media != nil {
 		sent.MediaType, sent.MimeType, sent.Filename, sent.Raw = media.Type, media.MimeType, media.Filename, media.Raw
+	}
+	if r := out.ReplyTo; r != nil {
+		sent.ReplyTo, sent.Quote = r.ID, r.Body()
 	}
 	if _, err := c.st.Apply(ctx, model.Update{Kind: model.New, Message: sent}); err != nil {
 		c.log.Warn("store sent message", "err", err)

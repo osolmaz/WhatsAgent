@@ -5,6 +5,7 @@ package model
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -96,6 +97,31 @@ func (m Media) Describe() string {
 		noun = "document"
 	}
 	return fmt.Sprintf("%s %s (%s)", noun, m.Filename, SizeLabel(m.Size))
+}
+
+// Outgoing is one message that WhatsAgent sends: text, media with the text as its caption, or a
+// forwarded message.
+type Outgoing struct {
+	Text  string
+	Media *Media
+	// ReplyTo is the message that this one answers, which WhatsApp shows quoted above it.
+	ReplyTo *Message
+	// Mentions are the JIDs of the people that the text mentions.
+	Mentions []string
+	// Forward is a stored message to forward. Text and Media stay empty then.
+	Forward *Message
+}
+
+// MentionsIn returns the JIDs of the people that text mentions as @ and a phone number, which
+// WhatsApp shows as their names.
+func MentionsIn(text string) []string {
+	var jids []string
+	for _, m := range mentionPattern.FindAllStringSubmatch(text, -1) {
+		if jid := m[1] + "@s.whatsapp.net"; !slices.Contains(jids, jid) {
+			jids = append(jids, jid)
+		}
+	}
+	return jids
 }
 
 // SizeLabel writes a byte count for people, such as "840 bytes", "84 KB" or "1.2 MB".

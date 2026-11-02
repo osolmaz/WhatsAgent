@@ -110,6 +110,26 @@ func TestOwnerCommands(t *testing.T) {
 	if _, err := runCtx(context.Background(), env, "  \n", "send", "--to", "self"); err == nil {
 		t.Error("an empty send gave no error")
 	}
+	// The owner answers a message in a kept chat, edits the answer, forwards it and deletes it.
+	keep(t, d, "g@g.us")
+	question := d.Receive("g@g.us", "when?", false)
+	if _, err := runCtx(context.Background(), env, "", "send", "--to", "g@g.us", "--text", "at 5", "--reply-to", question.ID); err != nil {
+		t.Fatal(err)
+	}
+	answer := d.Expect("at 5")
+	if answer.Out.ReplyTo == nil {
+		t.Error("the answer quotes nothing")
+	}
+	for _, args := range [][]string{
+		{"edit", "--chat", "g@g.us", "--id", answer.ID, "--text", "at 6"},
+		{"forward", "--chat", "g@g.us", "--id", answer.ID, "--to", "self"},
+		{"delete", "--chat", "g@g.us", "--id", answer.ID},
+	} {
+		if out, err := runCtx(context.Background(), env, "", args...); err != nil || out == "" {
+			t.Errorf("%s = %q, %v", args[0], out, err)
+		}
+		d.Expect("")
+	}
 	photo := filepath.Join(t.TempDir(), "photo.jpg")
 	if err := os.WriteFile(photo, []byte("jpeg"), 0o600); err != nil {
 		t.Fatal(err)
