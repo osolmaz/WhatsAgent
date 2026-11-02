@@ -8,6 +8,9 @@ JetBrains Mono Regular. Each string is shaped with HarfBuzz, so kerning and liga
 and each glyph is drawn at the position HarfBuzz returns. The SVG has no text elements and needs
 no font.
 
+The logo sits in front of the name. It is read from the browser page's logo file, so the cover
+and the page always show the same logo.
+
 The picture: a WhatsApp group on the left, where someone asks a question and the owner wakes
 the agent, and the agent's Claude Code session on the right, which reads the chat and answers in
 it. The arrow between them goes both ways.
@@ -19,6 +22,7 @@ import hashlib
 import itertools
 import math
 import sys
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -27,8 +31,12 @@ from fontTools.pens.boundsPen import BoundsPen
 from fontTools.pens.recordingPen import RecordingPen
 from fontTools.pens.svgPathPen import SVGPathPen
 from fontTools.pens.transformPen import TransformPen
+from fontTools.svgLib.path import parse_path
 from fontTools.ttLib import TTFont
 from PIL import Image, ImageDraw
+
+ROOT = Path(__file__).resolve().parent.parent
+LOGO = ROOT / "internal" / "web" / "ui" / "logo.svg"
 
 WIDTH, HEIGHT = 960, 320
 BACKGROUND = "#F5F0E6"
@@ -45,6 +53,7 @@ TERM_TEXT = "#4A4A4A"
 TERM_DIM = "#8A867E"
 
 NAME = "WhatsAgent"
+NAME_SIZE = 54  # below the usual 64, so that the logo and the name fit beside the picture
 TAGLINE = ["A WhatsApp bridge for coding agents", "such as Claude Code and Codex."]
 
 
@@ -171,6 +180,30 @@ def text_width(font: Font, text: str, size: float) -> float:
     return width(font, shaped(font, text, size), size)
 
 
+def cap_height(font: Font, size: float) -> float:
+    """The height of a flat-topped capital, measured on the "H" outline."""
+    pen = BoundsPen(font.face.getGlyphSet())
+    font.face.getGlyphSet()[font.face.getBestCmap()[ord("H")]].draw(pen)
+    return pen.bounds[3] * size / font.upem
+
+
+def logo(x: float, y: float, height: float) -> tuple[str, float]:
+    """The logo, scaled so that its drawn outline, stroke included, is height tall with its top-left
+    corner at (x, y). Returns it and its drawn width."""
+    root = ET.parse(LOGO).getroot()
+    paths = [el.get("d") for el in root.iter("{http://www.w3.org/2000/svg}path")]
+    pen = BoundsPen(None)
+    for d in paths:
+        parse_path(d, pen)
+    half = float(root.get("stroke-width")) / 2
+    left, top, right, bottom = pen.bounds[0] - half, pen.bounds[1] - half, pen.bounds[2] + half, pen.bounds[3] + half
+    scale = height / (bottom - top)
+    style = " ".join(f'{a}="{root.get(a)}"' for a in ("fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin"))
+    body = "".join(f'<path d="{d}"/>' for d in paths)
+    group = f'<g transform="translate({x - left * scale:.2f} {y - top * scale:.2f}) scale({scale:.4f})" {style}>{body}</g>'
+    return group, (right - left) * scale
+
+
 BUTTONS_END = 12 + 2 * 13 + 3.2  # right edge of the third window button, measured from the window's left
 
 
@@ -231,9 +264,20 @@ def build(font_dir: Path, mono_path: Path) -> str:
     term_x = WIDTH - 64 - win_w - 0.5  # the windows' border is centered on their edge; keep all of it inside
     chat_x = term_x - gap - win_w
 
+    # The text block: the logo and the name on one line, then the tagline, all from the left margin,
+    # centered from the top of the capitals to the last tagline baseline. A round mark looks smaller
+    # than flat-topped capitals of the same height, so the logo is a little taller than the capitals
+    # and centered on them.
+    tracking = -5 * NAME_SIZE / 64
+    cap = cap_height(bold, NAME_SIZE)
+    tag_gap, tag_line = 50, 26  # name baseline to the first tagline baseline, and between tagline baselines
+    baseline = HEIGHT / 2 + (cap - tag_gap - tag_line) / 2
+    mark_h = 1.1 * cap
+    mark, mark_w = logo(64, baseline - cap / 2 - mark_h / 2, mark_h)
+    name_x = 64 + mark_w + cap / 4  # the "W" leans away from the logo, so the gap looks wider than this
     for line in TAGLINE:
         assert 64 + text_width(regular, line, 19) <= chat_x - 24, f"tagline too wide: {line}"
-    assert 64 + width(bold, shaped(bold, NAME, 64, tracking=-5), 64) <= chat_x - 24, "name too wide"
+    assert name_x + width(bold, shaped(bold, NAME, NAME_SIZE, tracking), NAME_SIZE) <= chat_x - 24, "name too wide"
 
     # The group chat: a question, the owner waking the agent, and the agent's two messages.
     col_x, col_w = chat_x + PAD, win_w - 2 * PAD
@@ -298,9 +342,10 @@ def build(font_dir: Path, mono_path: Path) -> str:
         f'role="img" aria-label="WhatsAgent: {label}">',
         f"<title>WhatsAgent: {label}</title>",
         f'<rect width="{WIDTH}" height="{HEIGHT}" rx="12" fill="{BACKGROUND}"/>',
-        path(bold, NAME, 64, 142, 64, TEXT, tracking=-5),
-        path(regular, TAGLINE[0], 64, 196, 19, SECONDARY),
-        path(regular, TAGLINE[1], 64, 222, 19, SECONDARY),
+        mark,
+        path(bold, NAME, name_x, baseline, NAME_SIZE, TEXT, tracking=tracking),
+        path(regular, TAGLINE[0], 64, baseline + tag_gap, 19, SECONDARY),
+        path(regular, TAGLINE[1], 64, baseline + tag_gap + tag_line, 19, SECONDARY),
         window(regular, chat_x, top, win_w, win_h, "Team", "".join(chat), WALLPAPER, "chat"),
         arrow,
         window(regular, term_x, top, win_w, win_h, "Claude Code", "".join(term), CARD, "term"),
@@ -312,7 +357,7 @@ def build(font_dir: Path, mono_path: Path) -> str:
 def main() -> int:
     font_dir = Path(sys.argv[1])
     mono = Path(sys.argv[2])
-    out = Path(__file__).resolve().parent.parent / "assets" / "cover.svg"
+    out = ROOT / "assets" / "cover.svg"
     out.parent.mkdir(exist_ok=True)
     svg = build(font_dir, mono)
     assert "<text" not in svg and "font-family" not in svg, "delivered cover must ship no font references"
