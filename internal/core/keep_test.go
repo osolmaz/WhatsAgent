@@ -147,9 +147,13 @@ func TestCommandsChangeStateOnlyFromThePhone(t *testing.T) {
 		}
 	}
 	for _, caller := range []Caller{Owner, {Session: "bot"}} {
-		if reply, err := h.core.Run(ctx, caller, "/web"); !errors.Is(err, ErrNotAllowed) || strings.Contains(reply, "secret") {
+		reply, err := h.core.Run(ctx, caller, "/web")
+		if !errors.Is(err, ErrNotAllowed) || strings.Contains(reply, "secret") || strings.Contains(err.Error(), "arguments") {
 			t.Errorf("/web for %s = %q, %v", caller.Session, reply, err)
 		}
+	}
+	if _, err := h.core.Run(ctx, Owner, "/name Zed"); err == nil || !strings.Contains(err.Error(), "/name with arguments runs only") {
+		t.Errorf("a change through the CLI = %v", err)
 	}
 	if reply, _ := h.core.Run(ctx, phoneOwner, "/web"); !strings.Contains(reply, "token=secret") {
 		t.Errorf("/web from the phone = %q", reply)
@@ -190,7 +194,7 @@ func TestKeepCommand(t *testing.T) {
 	}
 	h.receive("g@g.us", "before keeping", false)
 	steps := []struct{ line, want string }{
-		{"/keep", "- the self-chat"},
+		{"/keep", "stay in memory for 1 day:\n- the self-chat"},
 		{"/keep Team on", "stored its 1 recent ones"},
 		{"/keep Team on", "kept already"},
 		{"/keep", "- Team"},

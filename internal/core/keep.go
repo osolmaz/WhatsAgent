@@ -59,7 +59,7 @@ func (c *Core) unkeep(ctx context.Context, chat model.Chat) (string, error) {
 		return chat.Label() + " is not kept.", nil
 	}
 	return fmt.Sprintf("WhatsAgent no longer stores %s and deleted its %d stored messages. Its new messages "+
-		"stay in memory for %s.", chat.Label(), n, c.cfg.Recent), nil
+		"stay in memory for %s.", chat.Label(), n, model.FormatDuration(c.cfg.Recent)), nil
 }
 
 // keptList names the kept chats.
@@ -69,7 +69,8 @@ func (c *Core) keptList(ctx context.Context) (string, error) {
 		return "", err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "WhatsAgent stores the messages of these chats; other chats stay in memory for %s:", c.cfg.Recent)
+	fmt.Fprintf(&b, "WhatsAgent stores the messages of these chats; other chats stay in memory for %s:",
+		model.FormatDuration(c.cfg.Recent))
 	for _, jid := range kept {
 		label := "the self-chat"
 		if jid != c.wa.SelfChat() {
