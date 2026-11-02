@@ -127,11 +127,36 @@ func TestOwnerCommands(t *testing.T) {
 		{"poll", "--to", "g@g.us", "--question", "Lunch?", "--option", "Pizza", "--option", "Sushi", "--multiple"},
 		{"location", "--to", "g@g.us", "--lat", "52.52", "--lng", "13.405", "--name", "Berlin"},
 		{"read", "--chat", "g@g.us", "--id", question.ID},
+		{"group", "rename", "--chat", "g@g.us", "--text", "Crew"},
+		{"group", "add", "--chat", "g@g.us", "--member", "+1 555 000 1111"},
+		{"group", "announce", "--chat", "g@g.us", "--on"},
+		{"group", "create", "--name", "Trip", "--member", "+1 555 000 1111"},
+		{"group", "join", "--link", "https://chat.whatsapp.com/AbC"},
+		{"profile", "--name", "Kan"},
 	} {
 		if out, err := runCtx(context.Background(), env, "", args...); err != nil || out == "" {
 			t.Errorf("%s = %q, %v", args[0], out, err)
 		}
 		d.Expect("")
+	}
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"group", "info", "--chat", "g@g.us"}, `"name": "Team"`},
+		{[]string{"contacts", "Sam"}, "200@s.whatsapp.net\tSam"},
+		{[]string{"contacts", "Sam", "--json"}, `"name": "Sam"`},
+		{[]string{"contact", "--person", "200@s.whatsapp.net"}, `"about": "Hey there"`},
+	} {
+		if out, err := runCtx(context.Background(), env, "", c.args...); err != nil || !strings.Contains(out, c.want) {
+			t.Errorf("%v = %q, %v", c.args, out, err)
+		}
+	}
+	if _, err := runCtx(context.Background(), env, "", "profile", "--picture", "/no/such/photo.png"); err == nil {
+		t.Error("a missing picture gave no error")
+	}
+	if label := contactLabel(model.Contact{PushName: "Sammy", OnWhatsApp: new(false)}); label != "Sammy (not on WhatsApp)" {
+		t.Errorf("contactLabel = %q", label)
 	}
 	photo := filepath.Join(t.TempDir(), "photo.jpg")
 	if err := os.WriteFile(photo, []byte("jpeg"), 0o600); err != nil {

@@ -93,6 +93,45 @@ func (f *WhatsApp) MarkRead(_ context.Context, chat, _, id string, _ time.Time) 
 	return nil
 }
 
+// GroupInfo implements core.WhatsApp with one member, Sam.
+func (f *WhatsApp) GroupInfo(_ context.Context, chat string) (model.Group, error) {
+	return model.Group{JID: chat, Name: "Team", Members: []model.Member{{JID: "200@s.whatsapp.net", Name: "Sam"}}}, nil
+}
+
+// CreateGroup implements core.WhatsApp.
+func (f *WhatsApp) CreateGroup(_ context.Context, name string, _ []string) (string, error) {
+	f.Sent <- Sent{Text: name, Kind: "create"}
+	return "new@g.us", nil
+}
+
+// ChangeGroup implements core.WhatsApp.
+func (f *WhatsApp) ChangeGroup(_ context.Context, chat string, change model.GroupChange) (string, error) {
+	f.Sent <- Sent{Chat: chat, Text: change.Text, Kind: change.Action}
+	return change.Action + " done", nil
+}
+
+// JoinGroup implements core.WhatsApp.
+func (f *WhatsApp) JoinGroup(_ context.Context, link string) (string, error) {
+	f.Sent <- Sent{Text: link, Kind: "join"}
+	return "joined@g.us", nil
+}
+
+// Contacts implements core.WhatsApp with one contact, Sam.
+func (f *WhatsApp) Contacts(context.Context, string) ([]model.Contact, error) {
+	return []model.Contact{{JID: "200@s.whatsapp.net", Name: "Sam"}}, nil
+}
+
+// ContactInfo implements core.WhatsApp.
+func (f *WhatsApp) ContactInfo(_ context.Context, person string) (model.Contact, error) {
+	return model.Contact{JID: person, Name: "Sam", About: "Hey there"}, nil
+}
+
+// SetProfile implements core.WhatsApp.
+func (f *WhatsApp) SetProfile(_ context.Context, p model.Profile) error {
+	f.Sent <- Sent{Text: p.Name, Kind: "profile"}
+	return nil
+}
+
 // Revoke implements core.WhatsApp.
 func (f *WhatsApp) Revoke(_ context.Context, chat, _, id string) error {
 	f.Sent <- Sent{Chat: chat, ID: id, Kind: "revoke"}

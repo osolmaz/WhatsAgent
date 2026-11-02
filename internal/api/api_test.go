@@ -111,11 +111,27 @@ func TestOwnerTools(t *testing.T) {
 		{"send_location", api.LocationArgs{Chat: "g@g.us", Location: model.Location{Latitude: 1, Longitude: 2}}},
 		{"mark_read", api.MessageArgs{Chat: "g@g.us", MessageID: "M1"}},
 		{"typing", api.ChatArgs{Chat: "self"}},
+		{"manage_group", api.GroupArgs{Chat: "g@g.us", GroupChange: model.GroupChange{Action: "rename", Text: "Crew"}}},
+		{"create_group", api.CreateGroupArgs{Name: "Trip", Members: []string{"+1 555 000 1111"}}},
+		{"join_group", api.LinkArgs{Link: "https://chat.whatsapp.com/AbC"}},
+		{"set_profile", model.Profile{Name: "Kan"}},
 	} {
 		if err := c.Tool(ctx, "", call.tool, call.args, &text); err != nil {
 			t.Errorf("%s: %v", call.tool, err)
 		}
 		d.Expect("")
+	}
+	var group model.Group
+	if err := c.Tool(ctx, "", "group_info", api.ChatArgs{Chat: "g@g.us"}, &group); err != nil || len(group.Members) != 1 {
+		t.Errorf("group_info = %+v, %v", group, err)
+	}
+	var found []model.Contact
+	if err := c.Tool(ctx, "", "find_contacts", api.QueryArgs{Query: "Sam"}, &found); err != nil || len(found) != 1 {
+		t.Errorf("find_contacts = %+v, %v", found, err)
+	}
+	var person model.Contact
+	if err := c.Tool(ctx, "", "contact_info", api.PersonArgs{Person: "200@s.whatsapp.net"}, &person); err != nil || person.About == "" {
+		t.Errorf("contact_info = %+v, %v", person, err)
 	}
 	file := &model.File{Name: "r.pdf", Data: []byte("%PDF")}
 	if err := c.Tool(ctx, "", "send", api.SendArgs{Chat: "g@g.us", Text: "the report", File: file}, &text); err != nil {

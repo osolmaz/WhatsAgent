@@ -160,6 +160,75 @@ type Location struct {
 	Address   string  `json:"address,omitempty"`
 }
 
+// Group is what WhatsApp tells about a group.
+type Group struct {
+	JID         string    `json:"jid"`
+	Name        string    `json:"name"`
+	Description string    `json:"description,omitempty"`
+	Created     time.Time `json:"created"`
+	// Announce lets only admins write, and Locked lets only admins change the group's details.
+	Announce bool     `json:"announce"`
+	Locked   bool     `json:"locked"`
+	Members  []Member `json:"members"`
+}
+
+// Member is one member of a group.
+type Member struct {
+	JID   string `json:"jid"`
+	Name  string `json:"name"`
+	Admin bool   `json:"admin,omitempty"`
+}
+
+// GroupChange is one change to a group: the action and the argument it needs.
+type GroupChange struct {
+	Action string `json:"action"`
+	// Text is the new name or description.
+	Text string `json:"text,omitempty"`
+	// Members are the people to add, remove, promote or demote, by JID.
+	Members []string `json:"members,omitempty"`
+	// On turns announce or lock on or off.
+	On bool `json:"on,omitempty"`
+}
+
+// GroupActions maps each group action to the argument that it needs: "text", "members", "on", or
+// "" for none.
+var GroupActions = map[string]string{
+	"rename": "text", "describe": "text",
+	"add": "members", "remove": "members", "promote": "members", "demote": "members",
+	"announce": "on", "lock": "on",
+	"invite_link": "", "reset_invite_link": "", "leave": "",
+}
+
+// Contact is a person in the owner's address book or on WhatsApp.
+type Contact struct {
+	JID      string `json:"jid"`
+	Name     string `json:"name,omitempty"`
+	PushName string `json:"push_name,omitempty"`
+	Business string `json:"business,omitempty"`
+	// OnWhatsApp is the result of checking a phone number, and nil for an address book entry.
+	OnWhatsApp *bool  `json:"on_whatsapp,omitempty"`
+	About      string `json:"about,omitempty"`
+	// Picture is the address of the person's profile picture.
+	Picture string `json:"picture,omitempty"`
+}
+
+// Profile is a change to the owner's own profile. Empty fields stay as they are.
+type Profile struct {
+	Name    string `json:"name,omitempty"`
+	About   string `json:"about,omitempty"`
+	Picture *File  `json:"picture,omitempty"`
+}
+
+// Digits returns the digits of s, such as the number in "+1 (555) 000-1111".
+func Digits(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= '0' && r <= '9' {
+			return r
+		}
+		return -1
+	}, s)
+}
+
 // MentionsIn returns the JIDs of the people that text mentions as @ and a phone number, which
 // WhatsApp shows as their names.
 func MentionsIn(text string) []string {
