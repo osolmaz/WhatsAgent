@@ -37,6 +37,10 @@ type Options struct {
 	Retry time.Duration
 	// CheckInWait is how long a tool call waits for the first check-in.
 	CheckInWait time.Duration
+	// Settle is how long the server waits after the client's initialized notification before it
+	// pushes channel messages. Claude Code registers its channel handler only after the handshake,
+	// and drops a channel message that arrives before that.
+	Settle time.Duration
 }
 
 // Server is one MCP server process.
@@ -51,6 +55,10 @@ type Server struct {
 	token string
 	ready chan struct{}
 	once  sync.Once
+
+	// pushReady closes Settle after the client's initialized notification.
+	pushReady chan struct{}
+	initOnce  sync.Once
 }
 
 // New returns a server that reaches the daemon through client and writes to out.
@@ -67,7 +75,10 @@ func New(opts Options, client *api.Client, out io.Writer) *Server {
 	if opts.CheckInWait == 0 {
 		opts.CheckInWait = 5 * time.Second
 	}
-	return &Server{opts: opts, api: client, out: out, ready: make(chan struct{})}
+	if opts.Settle == 0 {
+		opts.Settle = 2 * time.Second
+	}
+	return &Server{opts: opts, api: client, out: out, ready: make(chan struct{}), pushReady: make(chan struct{})}
 }
 
 type request struct {
@@ -146,6 +157,9 @@ func (s *Server) dispatch(ctx context.Context, req request) (any, *rpcError) {
 	case "notifications/claude/channel/permission_request":
 		s.relayPermission(ctx, req.Params)
 		return nil, nil
+	case "notifications/initialized":
+		s.initOnce.Do(func() { time.AfterFunc(s.opts.Settle, func() { close(s.pushReady) }) })
+		return nil, nil
 	}
 	if strings.HasPrefix(req.Method, "notifications/") {
 		return nil, nil
@@ -199,7 +213,7 @@ func (s *Server) keepSession(ctx context.Context) {
 		query.Set("push", "channel")
 	}
 	for ctx.Err() == nil {
-		err := s.api.Session(ctx, query, s.onFrame)
+		err := s.api.Session(ctx, query, func(f api.Frame) error { return s.onFrame(ctx, f) })
 		s.setToken("")
 		if ctx.Err() == nil {
 			s.opts.Log.Debug("session stream ended", "err", err)
@@ -235,20 +249,33 @@ func (s *Server) currentToken(ctx context.Context) (string, error) {
 	return s.token, nil
 }
 
-func (s *Server) onFrame(f api.Frame) error {
+func (s *Server) onFrame(ctx context.Context, f api.Frame) error {
 	switch f.Type {
 	case "hello":
 		s.setToken(f.Token)
 	case "events":
-		for _, e := range f.Events {
-			s.notify("notifications/claude/channel", channelEvent(e, s.opts.Location))
-		}
+		return s.push(ctx, f.Events)
 	case "verdict":
 		behavior := "deny"
 		if f.Allow {
 			behavior = "allow"
 		}
 		s.notify("notifications/claude/channel/permission", map[string]string{"request_id": f.RequestID, "behavior": behavior})
+	}
+	return nil
+}
+
+// push sends pushed events to the client as channel messages. The session checks in at once, so
+// tools work during the handshake, but the events wait until the client can take them: the daemon
+// counts them as delivered, so a message that the client dropped would be lost.
+func (s *Server) push(ctx context.Context, events []model.Event) error {
+	select {
+	case <-s.pushReady:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	for _, e := range events {
+		s.notify("notifications/claude/channel", channelEvent(e, s.opts.Location))
 	}
 	return nil
 }

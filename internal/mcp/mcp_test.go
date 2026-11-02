@@ -31,6 +31,7 @@ func run(t *testing.T, opts Options, socket string) *client {
 	outR, outW := io.Pipe()
 	opts.Retry = 50 * time.Millisecond
 	opts.CheckInWait = 300 * time.Millisecond
+	opts.Settle = settle
 	server := New(opts, api.NewClient(socket), outW)
 	done := make(chan struct{})
 	go func() {
@@ -191,6 +192,56 @@ func TestChannelSession(t *testing.T) {
 		t.Errorf("verdict = %v", verdict)
 	}
 	c.send(`{"jsonrpc":"2.0","method":"notifications/claude/channel/permission_request","params":"bad"}`)
+}
+
+const settle = 200 * time.Millisecond
+
+// TestChannelHoldsPushesUntilTheClientIsReady checks a fresh agent's first message: it arrives
+// while the client still connects, and the server pushes it only Settle after the client's
+// initialized notification, when Claude Code has registered its channel handler.
+func TestChannelHoldsPushesUntilTheClientIsReady(t *testing.T) {
+	socket := filepath.Join(testkit.ShortDir(t), "d.sock")
+	d := testkit.Start(t, socket)
+	d.Core.OnChatName("g@g.us", "Team")
+	d.Phone("/route Team dev", "now goes to dev")
+	d.Keep("g@g.us")
+	c := run(t, Options{Name: "dev", Harness: "claude", Push: true, Location: time.UTC}, socket)
+	for deadline := time.Now().Add(5 * time.Second); !pushing(t, d, "dev"); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the server did not check in")
+		}
+	}
+	d.Receive("g@g.us", "first message", false)
+	select {
+	case msg := <-c.lines:
+		t.Fatalf("the server wrote before the handshake: %v", msg)
+	case <-time.After(300 * time.Millisecond):
+	}
+	c.call("initialize", map[string]any{"protocolVersion": protocolVersions[0]})
+	c.send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
+	initialized := time.Now()
+	note := c.notification("notifications/claude/channel")
+	if waited := time.Since(initialized); waited < settle-20*time.Millisecond {
+		t.Errorf("the push came %s after the initialized notification, before the client was ready", waited)
+	}
+	if content := note["params"].(map[string]any)["content"]; content != "[Team] Sam: first message" {
+		t.Errorf("channel notification = %v", note)
+	}
+}
+
+// pushing reports whether the session takes channel pushes.
+func pushing(t *testing.T, d *testkit.Daemon, name string) bool {
+	t.Helper()
+	sessions, err := d.Core.Sessions(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range sessions {
+		if s.Name == name && s.Push == "channel" {
+			return true
+		}
+	}
+	return false
 }
 
 // TestClaimedHomeReadsOnlyKeptChats is what `WHATSAGENT_SESSION=home whatsagent channel` gets: an
