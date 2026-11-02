@@ -191,6 +191,10 @@ func (fakeWA) Revoke(context.Context, string, string, string) error        { ret
 func (fakeWA) React(context.Context, string, string, string, string) error { return nil }
 func (fakeWA) Download(context.Context, []byte) ([]byte, error)            { return nil, nil }
 func (fakeWA) ChatName(context.Context, string) string                     { return "" }
+func (fakeWA) Typing(context.Context, string) error                        { return nil }
+func (fakeWA) MarkRead(context.Context, string, string, string, time.Time) error {
+	return nil
+}
 
 func TestBuildAndDiscover(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())

@@ -107,6 +107,10 @@ func TestOwnerTools(t *testing.T) {
 		{"edit_message", api.EditArgs{Chat: "g@g.us", MessageID: answer.ID, Text: "better answer"}},
 		{"forward_message", api.ForwardArgs{Chat: "g@g.us", MessageID: answer.ID, To: "self"}},
 		{"delete_message", api.MessageArgs{Chat: "g@g.us", MessageID: answer.ID}},
+		{"send_poll", api.PollArgs{Chat: "g@g.us", Question: "Lunch?", Options: []string{"Pizza", "Sushi"}}},
+		{"send_location", api.LocationArgs{Chat: "g@g.us", Location: model.Location{Latitude: 1, Longitude: 2}}},
+		{"mark_read", api.MessageArgs{Chat: "g@g.us", MessageID: "M1"}},
+		{"typing", api.ChatArgs{Chat: "self"}},
 	} {
 		if err := c.Tool(ctx, "", call.tool, call.args, &text); err != nil {
 			t.Errorf("%s: %v", call.tool, err)

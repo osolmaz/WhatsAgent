@@ -74,6 +74,22 @@ func TestOutgoingMedia(t *testing.T) {
 	}
 }
 
+func TestOutgoingPollAndLocation(t *testing.T) {
+	poll := build(t, model.Outgoing{Poll: &model.Poll{Question: "Lunch?", Options: []string{"Pizza", "Sushi"}}})
+	p := poll.GetPollCreationMessage()
+	if p.GetName() != "Lunch?" || len(p.GetOptions()) != 2 || p.GetOptions()[1].GetOptionName() != "Sushi" ||
+		p.GetSelectableOptionsCount() != 1 || len(poll.GetMessageContextInfo().GetMessageSecret()) != 32 {
+		t.Errorf("poll = %v", poll)
+	}
+	if many := build(t, model.Outgoing{Poll: &model.Poll{Question: "?", Options: []string{"a", "b"}, Multiple: true}}); many.GetPollCreationMessage().GetSelectableOptionsCount() != 0 {
+		t.Error("a poll with several picks allows one")
+	}
+	place := build(t, model.Outgoing{Location: &model.Location{Latitude: 52.52, Longitude: 13.405, Name: "Berlin"}}).GetLocationMessage()
+	if place.GetDegreesLatitude() != 52.52 || place.GetDegreesLongitude() != 13.405 || place.GetName() != "Berlin" || place.Address != nil {
+		t.Errorf("location = %v", place)
+	}
+}
+
 func TestOutgoingForward(t *testing.T) {
 	text := build(t, model.Outgoing{Forward: &model.Message{ID: "M1", Text: "news"}})
 	if x := text.GetExtendedTextMessage(); x.GetText() != "news" || !x.GetContextInfo().GetIsForwarded() ||

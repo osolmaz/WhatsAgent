@@ -203,11 +203,15 @@ func newEdit(env paths.Env) *cobra.Command {
 		append(messageFlags(&a.Chat, &a.MessageID), flag{"text", "the new text", &a.Text, true})...)
 }
 
-func newDelete(env paths.Env) *cobra.Command {
+// messageCommand returns a command that calls tool on one message, which its flags name.
+func messageCommand(env paths.Env, name, short, tool string) *cobra.Command {
 	var a api.MessageArgs
-	return toolCommand(env, "delete --chat <chat> --id <message id>",
-		"Delete a message for everyone: the owner's own, or anyone's in a group the owner administers",
-		"delete_message", &a, messageFlags(&a.Chat, &a.MessageID)...)
+	return toolCommand(env, name+" --chat <chat> --id <message id>", short, tool, &a, messageFlags(&a.Chat, &a.MessageID)...)
+}
+
+func newDelete(env paths.Env) *cobra.Command {
+	return messageCommand(env, "delete",
+		"Delete a message for everyone: the owner's own, or anyone's in a group the owner administers", "delete_message")
 }
 
 func newForward(env paths.Env) *cobra.Command {
@@ -216,6 +220,34 @@ func newForward(env paths.Env) *cobra.Command {
 		"Forward a message to another chat, after an optional comment", "forward_message", &a,
 		append(messageFlags(&a.Chat, &a.MessageID), flag{"to", "the chat to forward it to", &a.To, true},
 			flag{"text", "a comment that goes before the forwarded message", &a.Text, false})...)
+}
+
+func newPoll(env paths.Env) *cobra.Command {
+	var a api.PollArgs
+	cmd := toolCommand(env, "poll --to <chat> --question <text> --option <text> --option <text>... [--multiple]",
+		"Send a poll as the owner; votes arrive as messages that answer it", "send_poll", &a,
+		flag{"to", "the chat", &a.Chat, true}, flag{"question", "the question", &a.Question, true})
+	cmd.Flags().StringArrayVar(&a.Options, "option", nil, "an option (2 to 12)")
+	cmd.Flags().BoolVar(&a.Multiple, "multiple", false, "let each voter pick any number of options")
+	return cmd
+}
+
+func newLocation(env paths.Env) *cobra.Command {
+	var a api.LocationArgs
+	cmd := toolCommand(env, "location --to <chat> --lat <degrees> --lng <degrees> [--name <text>] [--address <text>] [--text <text>]",
+		"Send a place on the map as the owner, after an optional text", "send_location", &a,
+		flag{"to", "the chat", &a.Chat, true}, flag{"name", "the place's name", &a.Name, false},
+		flag{"address", "the place's address", &a.Address, false},
+		flag{"text", "a message that goes before the location", &a.Text, false})
+	cmd.Flags().Float64Var(&a.Latitude, "lat", 0, "degrees north, -90 to 90")
+	cmd.Flags().Float64Var(&a.Longitude, "lng", 0, "degrees east, -180 to 180")
+	_ = cmd.MarkFlagRequired("lat")
+	_ = cmd.MarkFlagRequired("lng")
+	return cmd
+}
+
+func newRead(env paths.Env) *cobra.Command {
+	return messageCommand(env, "read", "Mark a message, and the chat's earlier messages, as read", "mark_read")
 }
 
 func newMedia(env paths.Env) *cobra.Command {

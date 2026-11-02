@@ -108,11 +108,7 @@ func (c *Core) upload(ctx context.Context, file *model.File) (*model.Media, erro
 
 // describeSend describes a send for the owner, from its real arguments.
 func (c *Core) describeSend(ctx context.Context, jid string, out model.Outgoing) string {
-	what := "this message"
-	if out.Media != nil {
-		what = "this " + out.Media.Describe()
-	}
-	action := fmt.Sprintf("send %s to %s", what, c.describeChat(ctx, jid))
+	action := fmt.Sprintf("send %s to %s", describeContent(out), c.describeChat(ctx, jid))
 	if r := out.ReplyTo; r != nil {
 		action += fmt.Sprintf(", in reply to %s's message %q", senderLabel(*r), clip(r.Body(), 200))
 	}
@@ -123,6 +119,71 @@ func (c *Core) describeSend(ctx context.Context, jid string, out model.Outgoing)
 		action += ":\n" + out.Text
 	}
 	return action
+}
+
+func describeContent(out model.Outgoing) string {
+	switch l := out.Location; {
+	case out.Media != nil:
+		return "this " + out.Media.Describe()
+	case l != nil:
+		return strings.TrimSpace(fmt.Sprintf("the location %.5f, %.5f %s", l.Latitude, l.Longitude, l.Name))
+	}
+	return "this message"
+}
+
+// SendLocation sends a place to a chat for caller, following the send rules. WhatsApp shows no
+// text with a location, so the text, with the agent prefix, goes first as a message of its own.
+func (c *Core) SendLocation(ctx context.Context, caller Caller, ref string, place model.Location, text string) (string, error) {
+	if place.Latitude < -90 || place.Latitude > 90 || place.Longitude < -180 || place.Longitude > 180 {
+		return "", fmt.Errorf("no place has the latitude %g and the longitude %g", place.Latitude, place.Longitude)
+	}
+	jid, text, err := c.compose(ctx, caller, ref, text)
+	if err != nil {
+		return "", err
+	}
+	out := model.Outgoing{Text: text, Location: &place, Mentions: model.MentionsIn(text)}
+	return c.gate(ctx, caller, jid, proposal{action: c.describeSend(ctx, jid, out),
+		act: func(ctx context.Context) (string, error) {
+			id, err := c.send(ctx, jid, out, true)
+			return "sent, id " + id, err
+		}})
+}
+
+// Typing shows the owner as typing in a chat while an agent prepares an answer. It works only
+// where caller may answer at once, because elsewhere no answer may follow the typing.
+func (c *Core) Typing(ctx context.Context, caller Caller, ref string) (string, error) {
+	jid, err := c.resolveChat(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+	if permission, err := c.allowed(ctx, caller, jid); err != nil || permission != model.Allow {
+		return "", fmt.Errorf("%w: %s shows typing only in a chat where it may answer at once", ErrNotAllowed,
+			caller.Session)
+	}
+	return "typing", c.wa.Typing(ctx, jid)
+}
+
+// MarkRead marks a message that caller may read, and the chat's earlier messages, as read. The
+// owner's phone shows them as read, and the sender sees blue ticks, so it follows the send rules.
+func (c *Core) MarkRead(ctx context.Context, caller Caller, ref, id string) (string, error) {
+	jid, err := c.resolveChat(ctx, ref)
+	if err != nil {
+		return "", err
+	}
+	m, err := c.visibleMessage(ctx, caller, jid, id)
+	if err != nil {
+		return "", err
+	}
+	if m.FromMe {
+		return "", fmt.Errorf("message %s is the owner's own", id)
+	}
+	return c.gate(ctx, caller, jid, proposal{
+		action: fmt.Sprintf("mark this message from %s in %s, and the ones before it, as read:\n%s", senderLabel(m),
+			c.describeChat(ctx, jid), m.Body()),
+		act: func(ctx context.Context) (string, error) {
+			return "marked as read", c.wa.MarkRead(ctx, jid, cmp.Or(m.RawSender, m.Sender), id, m.Time)
+		},
+	})
 }
 
 // Edit replaces the text of a message, following the send rules. An agent edits only messages

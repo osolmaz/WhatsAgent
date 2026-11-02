@@ -37,8 +37,8 @@ func ShortDir(t *testing.T) string {
 }
 
 // Sent is one message, edit or deletion that the fake connection sent. File is the name of the
-// file that a media message carries, and Text is its caption. Kind is "edit" or "revoke" for an
-// edit or a deletion of the message ID, and empty for a message.
+// file that a media message carries, and Text is its caption. Kind is "edit", "revoke", "typing"
+// or "read" for an edit, a deletion, a typing state or a read receipt, and empty for a message.
 type Sent struct {
 	Chat, ID, Text, File, Kind string
 	Out                        model.Outgoing
@@ -78,6 +78,18 @@ func (f *WhatsApp) Send(_ context.Context, chat, id string, out model.Outgoing) 
 // Edit implements core.WhatsApp.
 func (f *WhatsApp) Edit(_ context.Context, chat, id, text string) error {
 	f.Sent <- Sent{Chat: chat, ID: id, Text: text, Kind: "edit"}
+	return nil
+}
+
+// Typing implements core.WhatsApp.
+func (f *WhatsApp) Typing(_ context.Context, chat string) error {
+	f.Sent <- Sent{Chat: chat, Kind: "typing"}
+	return nil
+}
+
+// MarkRead implements core.WhatsApp.
+func (f *WhatsApp) MarkRead(_ context.Context, chat, _, id string, _ time.Time) error {
+	f.Sent <- Sent{Chat: chat, ID: id, Kind: "read"}
 	return nil
 }
 

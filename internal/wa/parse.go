@@ -1,6 +1,9 @@
 package wa
 
 import (
+	"cmp"
+	"encoding/hex"
+
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -55,9 +58,19 @@ var extractors = []extractor{
 		return content{x.GetDisplayName(), "contact", "", ""}, x != nil
 	},
 	func(m *waE2E.Message) (content, bool) {
-		x := m.GetPollCreationMessageV3()
-		return content{x.GetName(), "poll", "", ""}, x != nil
+		x := pollOf(m)
+		options := make([]string, len(x.GetOptions()))
+		for i, o := range x.GetOptions() {
+			options[i] = o.GetOptionName()
+		}
+		return content{model.Poll{Question: x.GetName(), Options: options}.Text(), "poll", "", ""}, x != nil
 	},
+}
+
+// pollOf returns the poll of a message in any of the versions that WhatsApp sends, or nil.
+func pollOf(m *waE2E.Message) *waE2E.PollCreationMessage {
+	return cmp.Or(m.GetPollCreationMessage(), m.GetPollCreationMessageV2(), m.GetPollCreationMessageV3(),
+		m.GetPollCreationMessageV5(), m.GetPollCreationMessageV6())
 }
 
 func extract(m *waE2E.Message) (content, bool) {
@@ -90,15 +103,7 @@ func contextOf(m *waE2E.Message) *waE2E.ContextInfo {
 // carry nothing to store, such as key distribution messages.
 func parse(evt *events.Message) (model.Update, bool) {
 	m := evt.Message
-	base := model.Message{
-		Chat:       evt.Info.Chat.ToNonAD().String(),
-		ID:         evt.Info.ID,
-		Sender:     evt.Info.Sender.ToNonAD().String(),
-		RawSender:  evt.Info.Sender.ToNonAD().String(),
-		SenderName: evt.Info.PushName,
-		Time:       evt.Info.Timestamp.UTC(),
-		FromMe:     evt.Info.IsFromMe,
-	}
+	base := baseMessage(evt)
 	if p := m.GetProtocolMessage(); p != nil {
 		return parseProtocol(base, p)
 	}
@@ -116,6 +121,33 @@ func parse(evt *events.Message) (model.Update, bool) {
 		base.Raw, _ = proto.Marshal(m)
 	}
 	return model.Update{Kind: model.New, Message: base}, true
+}
+
+// baseMessage returns the parts of a message that every kind has: chat, ID, sender and time.
+func baseMessage(evt *events.Message) model.Message {
+	return model.Message{
+		Chat:       evt.Info.Chat.ToNonAD().String(),
+		ID:         evt.Info.ID,
+		Sender:     evt.Info.Sender.ToNonAD().String(),
+		RawSender:  evt.Info.Sender.ToNonAD().String(),
+		SenderName: evt.Info.PushName,
+		Time:       evt.Info.Timestamp.UTC(),
+		FromMe:     evt.Info.IsFromMe,
+	}
+}
+
+// voteUpdate turns a decrypted vote into a message that answers the poll and carries the hashes of
+// the options that the voter picked. A vote holds the voter's whole choice, and an empty choice
+// takes the vote back.
+func voteUpdate(evt *events.Message, vote *waE2E.PollVoteMessage) model.Update {
+	m := baseMessage(evt)
+	m.MediaType = "poll vote"
+	m.ReplyTo = evt.Message.GetPollUpdateMessage().GetPollCreationMessageKey().GetID()
+	m.PollVote = []string{}
+	for _, hash := range vote.GetSelectedOptions() {
+		m.PollVote = append(m.PollVote, hex.EncodeToString(hash))
+	}
+	return model.Update{Kind: model.New, Message: m}
 }
 
 func parseProtocol(base model.Message, p *waE2E.ProtocolMessage) (model.Update, bool) {

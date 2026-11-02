@@ -3,7 +3,9 @@ package wa
 import (
 	"cmp"
 	"context"
+	"crypto/rand"
 	"fmt"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -83,8 +85,68 @@ func messageContent(out model.Outgoing) (*waE2E.Message, error) {
 			return nil, err
 		}
 		return withCaption(msg, out.Text), nil
+	case out.Poll != nil:
+		return pollMessage(*out.Poll), nil
+	case out.Location != nil:
+		l := out.Location
+		return &waE2E.Message{LocationMessage: &waE2E.LocationMessage{DegreesLatitude: proto.Float64(l.Latitude),
+			DegreesLongitude: proto.Float64(l.Longitude), Name: optional(l.Name), Address: optional(l.Address)}}, nil
 	}
 	return &waE2E.Message{Conversation: proto.String(out.Text)}, nil
+}
+
+// pollMessage builds a poll. Its random secret lets the voters encrypt their votes, and whatsmeow
+// keeps it when the poll goes out, so that WhatsAgent can read the votes.
+func pollMessage(p model.Poll) *waE2E.Message {
+	secret := make([]byte, 32)
+	_, _ = rand.Read(secret)
+	options := make([]*waE2E.PollCreationMessage_Option, len(p.Options))
+	for i, name := range p.Options {
+		options[i] = &waE2E.PollCreationMessage_Option{OptionName: proto.String(name)}
+	}
+	selectable := uint32(1)
+	if p.Multiple {
+		selectable = 0
+	}
+	return &waE2E.Message{
+		PollCreationMessage: &waE2E.PollCreationMessage{Name: proto.String(p.Question), Options: options,
+			SelectableOptionsCount: proto.Uint32(selectable)},
+		MessageContextInfo: &waE2E.MessageContextInfo{MessageSecret: secret},
+	}
+}
+
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// Typing shows the owner as typing in chat, until a message goes out or WhatsApp's own timeout
+// ends it. It leaves the account's online state alone, because an online linked device stops the
+// phone's notifications.
+func (c *Client) Typing(ctx context.Context, chat string) error {
+	to, err := parseChat(chat)
+	if err != nil {
+		return err
+	}
+	return c.cli.SendChatPresence(ctx, to, types.ChatPresenceComposing, types.ChatPresenceMediaText)
+}
+
+// MarkRead marks the message id from sender in chat, and the chat's earlier messages, as read on
+// the owner's devices and for the sender.
+func (c *Client) MarkRead(ctx context.Context, chat, sender, id string, sent time.Time) error {
+	to, err := parseChat(chat)
+	if err != nil {
+		return err
+	}
+	from := types.EmptyJID
+	if to.Server == types.GroupServer {
+		if from, err = parseChat(sender); err != nil {
+			return err
+		}
+	}
+	return c.cli.MarkRead(ctx, []types.MessageID{id}, sent, to, from)
 }
 
 func decode(raw []byte) (*waE2E.Message, error) {
