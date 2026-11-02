@@ -110,6 +110,19 @@ func TestOwnerCommands(t *testing.T) {
 	if _, err := runCtx(context.Background(), env, "  \n", "send", "--to", "self"); err == nil {
 		t.Error("an empty send gave no error")
 	}
+	photo := filepath.Join(t.TempDir(), "photo.jpg")
+	if err := os.WriteFile(photo, []byte("jpeg"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := runCtx(context.Background(), env, "", "send", "--to", "self", "--file", photo); err != nil || !strings.HasPrefix(out, "sent") {
+		t.Errorf("send --file = %q, %v", out, err)
+	}
+	if s := d.Expect(""); s.File != "photo.jpg" || s.Text != "" {
+		t.Errorf("sent %+v", s)
+	}
+	if _, err := runCtx(context.Background(), env, "", "send", "--to", "self", "--file", photo+".missing"); err == nil {
+		t.Error("a missing file gave no error")
+	}
 }
 
 func TestWatch(t *testing.T) {

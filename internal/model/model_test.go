@@ -6,6 +6,26 @@ import (
 	"time"
 )
 
+func TestMediaDescriptions(t *testing.T) {
+	for _, c := range []struct {
+		media Media
+		want  string
+	}{
+		{Media{Type: "image", Filename: "a.jpg", Size: 84_000}, "photo a.jpg (84 KB)"},
+		{Media{Type: "video", Filename: "v.mp4", Size: 1_250_000}, "video v.mp4 (1.2 MB)"},
+		{Media{Type: "audio", Filename: "n.ogg", Size: 2_000_000}, "audio file n.ogg (2 MB)"},
+		{Media{Type: "document", Filename: "r.pdf", Size: 999}, "document r.pdf (999 bytes)"},
+		{Media{Type: "sticker", Filename: "s.webp", Size: 1_000_000}, "document s.webp (1 MB)"},
+	} {
+		if got := c.media.Describe(); got != c.want {
+			t.Errorf("Describe() = %q, want %q", got, c.want)
+		}
+	}
+	if (Media{Type: "audio"}).Captioned() || !(Media{Type: "image"}).Captioned() {
+		t.Error("Captioned is wrong")
+	}
+}
+
 func TestDecide(t *testing.T) {
 	rules := []Rule{
 		{Session: "*", Chat: "*", Permission: Deny},

@@ -57,28 +57,34 @@ func (c *Core) newCode() string {
 
 // ask asks in the self-chat; see askIn.
 func (c *Core) ask(prompt string, decide func(ctx context.Context, allow bool) string) string {
-	return c.askIn(c.wa.SelfChat(), prompt, decide)
+	return c.askIn(c.wa.SelfChat(), prompt, nil, decide)
 }
 
-// askIn posts prompt in chat and runs decide with the owner's answer. decide returns the line to
-// post afterwards. It returns the code to answer with.
-func (c *Core) askIn(chat, prompt string, decide func(ctx context.Context, allow bool) string) string {
+// askIn posts prompt in chat, with media when media is not nil, and runs decide with the owner's
+// answer. decide returns the line to post afterwards. It returns the code to answer with.
+func (c *Core) askIn(chat, prompt string, media *model.Media, decide func(ctx context.Context, allow bool) string) string {
 	c.mu.Lock()
 	code := c.newCode()
 	c.pending[code] = &pending{code: code, chat: chat, decide: decide}
 	c.mu.Unlock()
-	c.sayIn(chat, fmt.Sprintf("%s\nReply \"yes %s\" or \"no %s\".", prompt, code, code))
+	c.showIn(chat, fmt.Sprintf("%s\nReply \"yes %s\" or \"no %s\".", prompt, code, code), media)
 	return code
 }
 
 // sayIn posts a WhatsAgent line in chat.
 func (c *Core) sayIn(chat, text string) {
+	c.showIn(chat, text, nil)
+}
+
+// showIn posts a WhatsAgent line in chat, as the caption of media when media is not nil.
+func (c *Core) showIn(chat, text string, media *model.Media) {
+	text = prefixWhatsAgent + text
 	if chat == c.wa.SelfChat() {
-		c.say(text)
+		c.queue(outgoing{text: text, media: media})
 		return
 	}
 	go func() {
-		if _, err := c.sendText(c.ctx, chat, prefixWhatsAgent+text); err != nil {
+		if _, err := c.send(c.ctx, chat, text, media, true); err != nil {
 			c.log.Warn("send a WhatsAgent message", "chat", chat, "err", err)
 		}
 	}()

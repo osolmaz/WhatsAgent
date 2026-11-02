@@ -60,6 +60,55 @@ type Message struct {
 	Raw []byte `json:"-"`
 }
 
+// MaxFileSize is the largest file that WhatsAgent sends, in bytes. The daemon holds a file in
+// memory while it uploads it.
+const MaxFileSize = 100_000_000
+
+// File is a file that a session sends: its name and contents, as the CLI or the WhatsAgent MCP
+// server read it from the caller's disk.
+type File struct {
+	Name string `json:"name"`
+	Data []byte `json:"data"`
+}
+
+// Media is a file that WhatsAgent uploaded to WhatsApp, ready to go out in a message to any
+// chat.
+type Media struct {
+	// Type is how WhatsApp shows the file: image, video, audio or document, as in
+	// Message.MediaType.
+	Type     string
+	MimeType string
+	Filename string
+	Size     int
+	// Raw is the encoded media message without a caption. Only the WhatsApp wrapper reads it.
+	Raw []byte
+}
+
+// Captioned reports whether WhatsApp shows a caption with the media. Audio has none.
+func (m Media) Captioned() bool {
+	return m.Type != "audio"
+}
+
+// Describe names the media for the owner, such as "photo chart.png (84 KB)".
+func (m Media) Describe() string {
+	noun := map[string]string{"image": "photo", "video": "video", "audio": "audio file"}[m.Type]
+	if noun == "" {
+		noun = "document"
+	}
+	return fmt.Sprintf("%s %s (%s)", noun, m.Filename, SizeLabel(m.Size))
+}
+
+// SizeLabel writes a byte count for people, such as "840 bytes", "84 KB" or "1.2 MB".
+func SizeLabel(n int) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprintf("%d bytes", n)
+	case n < 1000*1000:
+		return fmt.Sprintf("%d KB", n/1000)
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1e6), ".0") + " MB"
+}
+
 // UpdateKind says what an Update does to the store.
 type UpdateKind string
 

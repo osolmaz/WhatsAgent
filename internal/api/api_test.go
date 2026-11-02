@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -91,6 +92,13 @@ func TestOwnerTools(t *testing.T) {
 	if s := d.Expect("for an agent"); s.Text != "🤖 *Agent*: for an agent" {
 		t.Errorf("agent send = %q", s.Text)
 	}
+	file := &model.File{Name: "r.pdf", Data: []byte("%PDF")}
+	if err := c.Tool(ctx, "", "send", api.SendArgs{Chat: "g@g.us", Text: "the report", File: file}, &text); err != nil {
+		t.Fatal(err)
+	}
+	if s := d.Expect("the report"); s.File != "r.pdf" {
+		t.Errorf("file send = %+v", s)
+	}
 	for tool, args := range map[string]any{
 		"search":         api.SearchArgs{Query: "hello"},
 		"react":          api.MessageArgs{Chat: "g@g.us", MessageID: "M1", Emoji: "👀"},
@@ -112,6 +120,27 @@ func TestOwnerTools(t *testing.T) {
 	}
 	if _, err := c.ToolRaw(ctx, "", "send", "not an object"); err == nil {
 		t.Error("bad arguments gave no error")
+	}
+}
+
+func TestReadFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "chart.png")
+	if err := os.WriteFile(path, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := api.ReadFile(path); err != nil || f.Name != "chart.png" || string(f.Data) != "png" {
+		t.Errorf("ReadFile = %+v, %v", f, err)
+	}
+	// A sparse file is large without taking disk space, and ReadFile refuses it before reading.
+	big := filepath.Join(dir, "big.bin")
+	if err := os.WriteFile(big, nil, 0o600); err != nil || os.Truncate(big, model.MaxFileSize+1) != nil {
+		t.Fatal("cannot make a large file")
+	}
+	for _, p := range []string{big, dir, filepath.Join(dir, "missing")} {
+		if _, err := api.ReadFile(p); err == nil {
+			t.Errorf("ReadFile(%s) gave no error", p)
+		}
 	}
 }
 

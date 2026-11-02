@@ -168,10 +168,23 @@ func (s *Server) watch(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// maxRequest bounds a request body: a file of model.MaxFileSize in base64, plus room for the
+// rest of the request.
+const maxRequest = model.MaxFileSize/3*4 + 1<<20
+
+// decode reads a JSON request body of at most maxRequest bytes into v, and answers with the
+// error when it cannot.
+func decode(w http.ResponseWriter, r *http.Request, v any) bool {
+	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRequest)).Decode(v)
+	if err != nil {
+		reply(w, nil, err)
+	}
+	return err == nil
+}
+
 func (s *Server) tool(w http.ResponseWriter, r *http.Request) {
 	var req ToolRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		reply(w, nil, err)
+	if !decode(w, r, &req) {
 		return
 	}
 	caller, err := s.core.Caller(req.Token)
@@ -184,8 +197,7 @@ func (s *Server) tool(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) owner(w http.ResponseWriter, r *http.Request) {
 	var req ToolRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		reply(w, nil, err)
+	if !decode(w, r, &req) {
 		return
 	}
 	caller := core.Owner
@@ -230,8 +242,7 @@ func encode(v any) json.RawMessage {
 
 func (s *Server) permission(w http.ResponseWriter, r *http.Request) {
 	var req PermissionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		reply(w, nil, err)
+	if !decode(w, r, &req) {
 		return
 	}
 	caller, err := s.core.Caller(req.Token)

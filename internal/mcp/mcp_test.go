@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -172,6 +173,25 @@ func TestChannelSession(t *testing.T) {
 		t.Errorf("send = %q", text)
 	}
 	d.Expect("on it")
+	// The server reads the file that the agent names, in the agent's working folder.
+	t.Chdir(t.TempDir())
+	if err := os.WriteFile("plan.pdf", []byte("%PDF"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := map[string]any{"chat": "Team", "text": "the plan", "file": "plan.pdf"}
+	if text, _ := resultText(t, c.call("tools/call", map[string]any{"name": "send", "arguments": args})); !strings.HasPrefix(text, "sent") {
+		t.Errorf("send with a file = %q", text)
+	}
+	if s := d.Expect("the plan"); s.File != "plan.pdf" {
+		t.Errorf("sent %+v", s)
+	}
+	args["file"] = "missing.pdf"
+	if _, isErr := resultText(t, c.call("tools/call", map[string]any{"name": "send", "arguments": args})); !isErr {
+		t.Error("a missing file gave no error")
+	}
+	if _, isErr := resultText(t, c.call("tools/call", map[string]any{"name": "send", "arguments": "bad"})); !isErr {
+		t.Error("bad send arguments gave no error")
+	}
 	if text, _ := resultText(t, c.call("tools/call", map[string]any{"name": "list_sessions"})); !strings.Contains(text, `"name":"dev"`) {
 		t.Errorf("list_sessions = %q", text)
 	}

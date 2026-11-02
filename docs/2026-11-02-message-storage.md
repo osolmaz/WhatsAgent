@@ -42,6 +42,8 @@ When the owner stops keeping a chat, WhatsAgent deletes the chat's stored messag
 
 `download_media` works only in kept chats, because it writes a file.
 
+A file that a session sends goes to WhatsApp encrypted, and WhatsAgent writes none of its contents to disk. It stores the sent message like any other, so in a kept chat the stored message holds the file's name, type and download keys, and `download_media` can fetch the file again. While an approval waits, the daemon holds only those keys in memory.
+
 ### Memory
 
 The recent buffer is an in-memory SQLite database with the same tables as the file. Temporary storage of both databases stays in memory, so a large query does not spill message text into temporary files. Every minute the buffer drops messages older than 24 hours, and a restart empties it. Messages in the file and in the buffer share one event sequence, so a session's cursor works across both.

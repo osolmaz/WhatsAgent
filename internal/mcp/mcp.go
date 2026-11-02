@@ -347,15 +347,40 @@ func (s *Server) callTool(ctx context.Context, params json.RawMessage) map[strin
 	if err != nil {
 		return toolError(err)
 	}
-	args := p.Arguments
-	if len(args) == 0 {
+	var args any = p.Arguments
+	if len(p.Arguments) == 0 {
 		args = json.RawMessage("{}")
+	}
+	if p.Name == "send" {
+		if args, err = sendArgs(p.Arguments); err != nil {
+			return toolError(err)
+		}
 	}
 	raw, err := s.api.ToolRaw(ctx, token, p.Name, args)
 	if err != nil {
 		return toolError(err)
 	}
 	return toolText(s.render(p.Name, raw))
+}
+
+// sendArgs turns the arguments of a send into the daemon's. The agent names a file by its path,
+// and this server reads it, in the agent's working folder.
+func sendArgs(raw json.RawMessage) (api.SendArgs, error) {
+	var a struct {
+		Chat string `json:"chat"`
+		Text string `json:"text"`
+		File string `json:"file"`
+	}
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return api.SendArgs{}, err
+	}
+	args := api.SendArgs{Chat: a.Chat, Text: a.Text}
+	if a.File == "" {
+		return args, nil
+	}
+	file, err := api.ReadFile(a.File)
+	args.File = file
+	return args, err
 }
 
 func toolText(text string) map[string]any {

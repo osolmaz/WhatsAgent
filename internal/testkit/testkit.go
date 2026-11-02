@@ -36,8 +36,9 @@ func ShortDir(t *testing.T) string {
 	return dir
 }
 
-// Sent is one message that the fake connection sent.
-type Sent struct{ Chat, ID, Text string }
+// Sent is one message that the fake connection sent. File is the name of the file that a media
+// message carries, and Text is its caption.
+type Sent struct{ Chat, ID, Text, File string }
 
 // WhatsApp is a fake WhatsApp connection.
 type WhatsApp struct {
@@ -62,7 +63,19 @@ func (f *WhatsApp) NewID() string {
 
 // SendText implements core.WhatsApp.
 func (f *WhatsApp) SendText(_ context.Context, chat, id, text string) error {
-	f.Sent <- Sent{chat, id, text}
+	f.Sent <- Sent{Chat: chat, ID: id, Text: text}
+	return nil
+}
+
+// Upload implements core.WhatsApp. Every file is a document.
+func (f *WhatsApp) Upload(_ context.Context, file model.File) (model.Media, error) {
+	return model.Media{Type: "document", MimeType: "application/octet-stream", Filename: file.Name,
+		Size: len(file.Data), Raw: file.Data}, nil
+}
+
+// SendMedia implements core.WhatsApp.
+func (f *WhatsApp) SendMedia(_ context.Context, chat, id string, media model.Media, caption string) error {
+	f.Sent <- Sent{Chat: chat, ID: id, Text: caption, File: media.Filename}
 	return nil
 }
 

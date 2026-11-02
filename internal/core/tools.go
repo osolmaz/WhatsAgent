@@ -235,19 +235,75 @@ func (c *Core) cachedView(ctx context.Context, caller Caller, chat string, views
 // Send sends text to a chat for caller, following the send rules. With the permission ask it
 // returns at once, and the message goes out when the owner answers yes.
 func (c *Core) Send(ctx context.Context, caller Caller, ref, text string) (string, error) {
-	jid, err := c.resolveChat(ctx, ref)
+	if strings.TrimSpace(text) == "" {
+		return "", errors.New("no text to send")
+	}
+	jid, text, err := c.compose(ctx, caller, ref, text)
 	if err != nil {
 		return "", err
 	}
-	text = c.prefixed(ctx, caller, jid, text)
-	if !caller.isOwner() && forged(text) {
-		return "", errForged
-	}
-	action := fmt.Sprintf("send this message to %s:\n%s", c.describeChat(ctx, jid), text)
-	return c.gate(ctx, caller, jid, action, func(ctx context.Context) (string, error) {
-		id, err := c.sendText(ctx, jid, text)
-		return "sent, id " + id, err
+	return c.gate(ctx, caller, jid, proposal{
+		action: fmt.Sprintf("send this message to %s:\n%s", c.describeChat(ctx, jid), text),
+		act: func(ctx context.Context) (string, error) {
+			id, err := c.sendText(ctx, jid, text)
+			return "sent, id " + id, err
+		},
 	})
+}
+
+// SendFile sends a file to a chat for caller, with caption under it, following the send rules.
+// The upload comes after the rules allow or ask, so a file that a rule denies never leaves the
+// machine. An approval shows the uploaded file itself, and a yes sends that same upload, so the
+// owner approves exactly what goes out.
+func (c *Core) SendFile(ctx context.Context, caller Caller, ref, caption string, file model.File) (string, error) {
+	if err := checkFile(file); err != nil {
+		return "", err
+	}
+	jid, caption, err := c.compose(ctx, caller, ref, caption)
+	if err != nil {
+		return "", err
+	}
+	permission, err := c.allowed(ctx, caller, jid)
+	if err != nil {
+		return "", err
+	}
+	media, err := c.wa.Upload(ctx, file)
+	if err != nil {
+		return "", err
+	}
+	action := fmt.Sprintf("send this %s to %s", media.Describe(), c.describeChat(ctx, jid))
+	if caption != "" {
+		action += ", with the caption:\n" + caption
+	}
+	return c.carry(ctx, caller, permission, proposal{action: action, media: &media,
+		act: func(ctx context.Context) (string, error) {
+			id, err := c.send(ctx, jid, caption, &media, true)
+			return "sent, id " + id, err
+		}})
+}
+
+func checkFile(f model.File) error {
+	if len(f.Data) == 0 {
+		return fmt.Errorf("%s is empty", f.Name)
+	}
+	if len(f.Data) > model.MaxFileSize {
+		return fmt.Errorf("%s has %s; WhatsAgent sends files up to %s", f.Name, model.SizeLabel(len(f.Data)),
+			model.SizeLabel(model.MaxFileSize))
+	}
+	return nil
+}
+
+// compose resolves a chat and puts the agent prefix in front of an agent's text. It refuses
+// agent text that would pass for one of WhatsAgent's own messages.
+func (c *Core) compose(ctx context.Context, caller Caller, ref, text string) (jid, out string, err error) {
+	if jid, err = c.resolveChat(ctx, ref); err != nil {
+		return "", "", err
+	}
+	out = strings.TrimRightFunc(c.prefixed(ctx, caller, jid, text), unicode.IsSpace)
+	if !caller.isOwner() && forged(out) {
+		return "", "", errForged
+	}
+	return jid, out, nil
 }
 
 // prefixed puts the agent prefix in front of a message from an agent session. The owner's own
@@ -259,28 +315,50 @@ func (c *Core) prefixed(ctx context.Context, caller Caller, jid, text string) st
 	return withPrefix(c.prefixFor(ctx, caller.Session, jid), text)
 }
 
-// gate runs act when the send rules allow caller to act on chat, asks the owner first for ask,
-// and refuses for deny. action describes act for the owner; WhatsAgent writes it from the
-// action's real arguments, never from the agent's words.
-func (c *Core) gate(ctx context.Context, caller Caller, jid, action string,
-	act func(ctx context.Context) (string, error)) (string, error) {
+// proposal is an action on a chat that the send rules decide. action describes act for the
+// owner; WhatsAgent writes it from the action's real arguments, never from the agent's words. An
+// approval shows media, when it is not nil, with the description.
+type proposal struct {
+	action string
+	media  *model.Media
+	act    func(ctx context.Context) (string, error)
+}
+
+// gate runs p when the send rules allow caller to act on chat, asks the owner first for ask, and
+// refuses for deny.
+func (c *Core) gate(ctx context.Context, caller Caller, jid string, p proposal) (string, error) {
+	permission, err := c.allowed(ctx, caller, jid)
+	if err != nil {
+		return "", err
+	}
+	return c.carry(ctx, caller, permission, p)
+}
+
+// allowed returns the permission of the send rules for caller on chat, allow or ask, and an error
+// when they deny it.
+func (c *Core) allowed(ctx context.Context, caller Caller, jid string) (model.Permission, error) {
 	permission, err := c.permission(ctx, caller, jid)
 	if err != nil {
 		return "", err
 	}
-	switch permission {
-	case model.Allow:
-		return act(ctx)
-	case model.Ask:
-		where := c.approvalChat(ctx, caller.Session)
-		code := c.askIn(where, fmt.Sprintf("Approval: the agent session %s wants to %s", caller.Session, action),
-			func(ctx context.Context, allow bool) string {
-				return c.decided(ctx, allow, act)
-			})
-		return fmt.Sprintf("waiting for the owner's yes in %s (code %s); it goes out after a yes",
-			c.describeChat(ctx, where), code), nil
+	if permission != model.Allow && permission != model.Ask {
+		return "", fmt.Errorf("%w: a send rule denies %s for %s", ErrNotAllowed, jid, caller.Session)
 	}
-	return "", fmt.Errorf("%w: a send rule denies %s for %s", ErrNotAllowed, jid, caller.Session)
+	return permission, nil
+}
+
+// carry runs p at once for allow, and asks the owner first for ask.
+func (c *Core) carry(ctx context.Context, caller Caller, permission model.Permission, p proposal) (string, error) {
+	if permission == model.Allow {
+		return p.act(ctx)
+	}
+	where := c.approvalChat(ctx, caller.Session)
+	code := c.askIn(where, fmt.Sprintf("Approval: the agent session %s wants to %s", caller.Session, p.action), p.media,
+		func(ctx context.Context, allow bool) string {
+			return c.decided(ctx, allow, p.act)
+		})
+	return fmt.Sprintf("waiting for the owner's yes in %s (code %s); it goes out after a yes",
+		c.describeChat(ctx, where), code), nil
 }
 
 func (c *Core) decided(ctx context.Context, allow bool, act func(ctx context.Context) (string, error)) string {
@@ -307,10 +385,12 @@ func (c *Core) React(ctx context.Context, caller Caller, ref, id, emoji string) 
 	if sender == "" {
 		sender = m.Sender
 	}
-	action := fmt.Sprintf("react %s in %s to this message from %s:\n%s", emoji, c.describeChat(ctx, jid),
-		senderLabel(m), m.Body())
-	return c.gate(ctx, caller, jid, action, func(ctx context.Context) (string, error) {
-		return "reacted", c.wa.React(ctx, jid, sender, id, emoji)
+	return c.gate(ctx, caller, jid, proposal{
+		action: fmt.Sprintf("react %s in %s to this message from %s:\n%s", emoji, c.describeChat(ctx, jid),
+			senderLabel(m), m.Body()),
+		act: func(ctx context.Context) (string, error) {
+			return "reacted", c.wa.React(ctx, jid, sender, id, emoji)
+		},
 	})
 }
 
