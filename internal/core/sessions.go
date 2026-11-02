@@ -409,24 +409,30 @@ func pushable(e model.Event) bool {
 	return e.Kind == model.New && (e.Message.Role == model.RoleOwner || e.Message.Role == model.RoleOther)
 }
 
+// liveSessions returns, by session name, which sessions are checked in, their push states, and
+// which are verified run agents.
+func (c *Core) liveSessions() (online map[string]bool, push map[string]string, verified map[string]bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	online, push, verified = map[string]bool{}, map[string]string{}, map[string]bool{}
+	for _, cn := range c.conns {
+		online[cn.info.Name] = true
+		verified[cn.info.Name] = verified[cn.info.Name] || cn.verified
+	}
+	for name, sub := range c.subs {
+		push[name] = sub.push
+		verified[name] = verified[name] || sub.verified
+	}
+	return online, push, verified
+}
+
 // Sessions lists every known session with its online state and waiting messages.
 func (c *Core) Sessions(ctx context.Context) ([]model.Session, error) {
 	known, err := c.st.Sessions(ctx)
 	if err != nil {
 		return nil, err
 	}
-	c.mu.Lock()
-	online, verified := map[string]bool{}, map[string]bool{}
-	for _, cn := range c.conns {
-		online[cn.info.Name] = true
-		verified[cn.info.Name] = verified[cn.info.Name] || cn.verified
-	}
-	push := map[string]string{}
-	for name, sub := range c.subs {
-		push[name] = sub.push
-		verified[name] = verified[name] || sub.verified
-	}
-	c.mu.Unlock()
+	online, push, verified := c.liveSessions()
 	for i := range known {
 		s := &known[i]
 		s.Online, s.Push, s.RunAgent = online[s.Name] || push[s.Name] != "", push[s.Name], verified[s.Name]
