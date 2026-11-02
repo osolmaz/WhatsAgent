@@ -153,7 +153,7 @@ func TestStartClaudeInTerminal(t *testing.T) {
 	defer cancel()
 	terminals, h := term.NewHost(), &host{}
 	opts := ClaudeOptions{Terminals: terminals, Bin: bin, Dir: filepath.Join(t.TempDir(), "chat-team"), Title: "Team",
-		Instructions: "be Bob", Tools: []string{"WebSearch"}, MCPConfig: `{"mcpServers":{}}`, ConfigDir: t.TempDir(),
+		Instructions: "be Bob", MCPConfig: `{"mcpServers":{}}`, ConfigDir: t.TempDir(),
 		Args: []string{"--model", "claude-opus-5-5"}, Restart: 10 * time.Millisecond}
 	pusher, err := StartClaude(ctx, opts, h.agentHost("chat-team"))
 	if err != nil || pusher != nil {
@@ -168,7 +168,7 @@ func TestStartClaudeInTerminal(t *testing.T) {
 	args, _ := os.ReadFile(argsFile)
 	for _, want := range []string{"--dangerously-load-development-channels\nserver:whatsagent", "--append-system-prompt\nbe Bob",
 		"--allowedTools\nmcp__whatsagent", "--strict-mcp-config\n--mcp-config\n{\"mcpServers\":{}}", "--permission-mode\nauto",
-		"--tools\nWebSearch", "--session-id\n" + first, "--model\nclaude-opus-5-5", "WHATSAGENT_SESSION=chat-team",
+		"--session-id\n" + first, "--model\nclaude-opus-5-5", "WHATSAGENT_SESSION=chat-team",
 		"TERM=xterm-256color"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args %q missing %q", args, want)
@@ -176,6 +176,9 @@ func TestStartClaudeInTerminal(t *testing.T) {
 	}
 	if strings.Contains(string(args), "CLAUDECODE") {
 		t.Error("the agent inherited a session marker")
+	}
+	if strings.Contains(string(args), "--tools") || strings.Contains(string(args), "--disallowedTools") {
+		t.Errorf("the agent's tools are limited: %q", args)
 	}
 
 	// Once Claude Code keeps a transcript, the agent's next process resumes that session.
