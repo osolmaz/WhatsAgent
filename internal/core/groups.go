@@ -25,7 +25,7 @@ func (c *Core) administer(ctx context.Context, caller Caller, chat string, p pro
 // groupChat resolves a reference to a group.
 func (c *Core) groupChat(ctx context.Context, ref string) (string, error) {
 	jid, err := c.resolveChat(ctx, ref)
-	if err == nil && !strings.HasSuffix(jid, "@g.us") {
+	if err == nil && !isGroup(jid) {
 		err = fmt.Errorf("%s is not a group", jid)
 	}
 	return jid, err
@@ -102,7 +102,7 @@ func (c *Core) people(ctx context.Context, refs []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if strings.HasSuffix(jid, "@g.us") {
+		if isGroup(jid) {
 			return nil, fmt.Errorf("%s is a group, not a person", ref)
 		}
 		jids[i] = jid

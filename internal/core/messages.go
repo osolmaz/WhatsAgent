@@ -224,7 +224,7 @@ func (c *Core) editable(ctx context.Context, caller Caller, chat, id string) (mo
 	m, err := c.changeable(ctx, caller, chat, id, false)
 	if err == nil && (m.MediaType != "" || time.Since(m.Time) > editWindow) {
 		err = fmt.Errorf("WhatsApp edits only text messages up to %s old, and message %s is a %s from %s",
-			editWindow, id, cmp.Or(m.MediaType, "text message"), m.Time.In(c.cfg.Location).Format("15:04"))
+			editWindow, id, cmp.Or(m.MediaType, "text message"), c.when(m.Time))
 	}
 	return m, err
 }
@@ -239,7 +239,7 @@ func (c *Core) Delete(ctx context.Context, caller Caller, ref, id string) (strin
 	if err != nil {
 		return "", err
 	}
-	group := strings.HasSuffix(jid, "@g.us")
+	group := isGroup(jid)
 	m, err := c.changeable(ctx, caller, jid, id, group)
 	if err != nil {
 		return "", err

@@ -70,7 +70,7 @@ func Prompt(events []model.Event, selfChat string, loc *time.Location) string {
 	lines := make([]string, 0, len(events))
 	for _, e := range events {
 		m := e.Message
-		when := m.Time.In(loc).Format("2006-01-02 15:04")
+		when := m.Time.In(loc).Format(model.TimeLayout)
 		if m.Chat == selfChat {
 			lines = append(lines, fmt.Sprintf("[%s] The owner wrote in the self-chat: %s", when, m.Body()))
 			continue

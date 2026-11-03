@@ -315,7 +315,7 @@ func channelEvent(e model.Event, loc *time.Location) map[string]any {
 			"sender_name": m.SenderName,
 			"message_id":  m.ID,
 			"trust":       m.Role.Trust(),
-			"time":        m.Time.In(loc).Format("2006-01-02 15:04"),
+			"time":        m.Time.In(loc).Format(model.TimeLayout),
 		},
 	}
 }
