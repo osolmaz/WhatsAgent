@@ -279,6 +279,29 @@ func TestModeAndWindowCommands(t *testing.T) {
 	}
 	h.receive("g@g.us", "Agent, begin once more", true)
 	h.expect("Now monitoring")
+
+	// A new length applies to an open window at once: its own length to its chat's window, and the
+	// default length to the windows of chats without their own.
+	if out := run("/mode Team <> Sam window 1d"); !strings.Contains(out, "The open window of Team <> Sam now ends at") {
+		t.Errorf("/mode with a new length = %q", out)
+	}
+	w, _, _ := h.st.Window(ctx, "g@g.us")
+	if left := time.Until(w.Until); left < 23*time.Hour || left > 24*time.Hour {
+		t.Errorf("the open window ends in %s", left)
+	}
+	if out := run("/mode"); !strings.Contains(out, "Open window: Team <> Sam, until "+w.Until.In(time.UTC).Format("Mon 15:04")) {
+		t.Errorf("/mode after the new length = %q", out)
+	}
+	h.core.OnChatName("x@g.us", "Other")
+	h.receive("x@g.us", "Agent, go", true)
+	h.expect("Now monitoring")
+	run("/window length 3h")
+	if again, _, _ := h.st.Window(ctx, "g@g.us"); !again.Until.Equal(w.Until) {
+		t.Error("the default length moved a window whose chat has its own length")
+	}
+	if other, _, _ := h.st.Window(ctx, "x@g.us"); time.Until(other.Until) < 170*time.Minute {
+		t.Errorf("the default length did not move the window of Other: %+v", other)
+	}
 	if out := run("/mode Team <> Sam all"); out != "Team <> Sam: all." {
 		t.Errorf("/mode all = %q", out)
 	}

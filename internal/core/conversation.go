@@ -100,10 +100,25 @@ func (c *Core) mayAnswer(ctx context.Context, session, chat string) bool {
 	return c.chatView(ctx, chat).talks() && c.inConversation(session, chat)
 }
 
+// isGroup reports whether a JID names a group.
+func isGroup(jid string) bool {
+	return strings.HasSuffix(jid, "@g.us")
+}
+
+// when names a time for the owner: its clock time on the same day, and its weekday too on another
+// day.
+func (c *Core) when(t time.Time) string {
+	t, now := t.In(c.cfg.Location), time.Now().In(c.cfg.Location)
+	if t.Format(time.DateOnly) == now.Format(time.DateOnly) {
+		return t.Format("15:04")
+	}
+	return t.Format("Mon 15:04")
+}
+
 // chatKind names what kind of chat a JID is, for the owner.
 func chatKind(jid string) string {
 	switch {
-	case strings.HasSuffix(jid, "@g.us"):
+	case isGroup(jid):
 		return "group"
 	case strings.HasSuffix(jid, "@newsletter"):
 		return "channel"
