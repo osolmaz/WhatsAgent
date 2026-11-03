@@ -110,7 +110,12 @@ A route links a chat to a session, as before. `/route <chat> <session> [<mode>]`
 
 A chat without a route gets its own chat agent. WhatsAgent starts it when the chat's mode first shows the agent a message, for example when the owner opens a window. A chat agent runs on Claude Code with its own folder under the WhatsAgent data folder, keeps its harness session across restarts, and stops after 15 minutes without new messages and without an open window. The next message that its mode shows starts it again on the same session.
 
-Each chat gets a separate agent, so what one chat lets the agents see never reaches another chat. A chat agent has all of Claude Code's tools, such as Bash and Monitor, so it can check a flight or a web page on a schedule, and WhatsAgent is its only MCP server. Its WhatsAgent tools check in as its own session, so `read_chat`, `search`, `react` and `download_media` show it only what its chat's mode shows, and it cannot read the self-chat or any other chat. It runs as an interactive Claude Code session in a terminal, gets its messages through its WhatsAgent channel, and answers in its chat with the `send` tool, which adds the prefix. The owner can watch it and type into it on the browser page that `whatsagent web` opens.
+The owner made two decisions about this lifecycle:
+
+1. A chat agent may stop at any time: when it is idle as above, when the daemon restarts, or when its process ends. WhatsAgent does not keep an agent running for its background jobs, such as a Monitor task or a background command, and those jobs end with the agent. The daemon also does not start chat agents when it starts.
+2. When a message brings a chat agent back, it continues the same harness session, so it keeps its conversation and can pick up its work from there.
+
+Each chat gets a separate agent, so what one chat lets the agents see never reaches another chat. A chat agent has all of Claude Code's tools, such as Bash and Monitor, so it can check a flight or a web page on a schedule while it runs, and WhatsAgent is its only MCP server. Its WhatsAgent tools check in as its own session, so `read_chat`, `search`, `react` and `download_media` show it only what its chat's mode shows, and it cannot read the self-chat or any other chat. It runs as an interactive Claude Code session in a terminal, gets its messages through its WhatsAgent channel, and answers in its chat with the `send` tool, which adds the prefix. The owner can watch it and type into it on the browser page that `whatsagent web` opens.
 
 ## Enforcement and limits
 
