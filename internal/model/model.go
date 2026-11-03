@@ -413,11 +413,14 @@ func (m Message) Body() string {
 	return text
 }
 
+// TimeLayout is how a message's time looks to an agent.
+const TimeLayout = "2006-01-02 15:04"
+
 // Line formats m as one line for an agent: time, sender, text, reply context and the IDs that
 // the reply and react tools need.
 func Line(m Message, chatName string, loc *time.Location) string {
 	var b strings.Builder
-	b.WriteString(m.Time.In(loc).Format("2006-01-02 15:04"))
+	b.WriteString(m.Time.In(loc).Format(TimeLayout))
 	if chatName != "" {
 		fmt.Fprintf(&b, " [%s]", chatName)
 	}
