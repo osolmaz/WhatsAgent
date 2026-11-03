@@ -25,6 +25,7 @@ func cmdMode(ctx context.Context, c *Core, args string) (string, error) {
 		return "", err
 	}
 	mode.Chat = jid
+	before := c.windowLengths(ctx)
 	if err := c.st.SetChatMode(ctx, mode); err != nil {
 		return "", err
 	}
@@ -34,9 +35,44 @@ func cmdMode(ctx context.Context, c *Core, args string) (string, error) {
 			return "", err
 		}
 	}
+	note, err := c.resizeWindows(ctx, before)
 	c.wakeAll()
 	chat, _ := c.st.Chat(ctx, jid)
-	return fmt.Sprintf("%s: %s.", chatLabel(chat), c.modeText(ctx, jid)), nil
+	return fmt.Sprintf("%s: %s.%s", chatLabel(chat), c.modeText(ctx, jid), note), err
+}
+
+// windowLengths returns the window length of each chat that has an open window.
+func (c *Core) windowLengths(ctx context.Context) map[string]time.Duration {
+	windows, _ := c.st.Windows(ctx)
+	lengths := make(map[string]time.Duration, len(windows))
+	for _, w := range windows {
+		lengths[w.Chat] = c.chatMode(ctx, w.Chat).Length
+	}
+	return lengths
+}
+
+// resizeWindows applies a new window length to the windows that are open: a window whose chat's
+// length differs from before now ends at the new length from now, as if the owner had named the
+// agent. It returns a note for the owner about each window that it moved.
+func (c *Core) resizeWindows(ctx context.Context, before map[string]time.Duration) (string, error) {
+	windows, err := c.st.Windows(ctx)
+	if err != nil {
+		return "", err
+	}
+	var note strings.Builder
+	for _, w := range windows {
+		mode := c.chatMode(ctx, w.Chat)
+		if old, ok := before[w.Chat]; !ok || old == mode.Length || mode.Mode != model.ModeWindow {
+			continue
+		}
+		w.Until = time.Now().UTC().Add(mode.Length)
+		if err := c.st.SetWindow(ctx, w); err != nil {
+			return note.String(), err
+		}
+		chat, _ := c.st.Chat(ctx, w.Chat)
+		fmt.Fprintf(&note, " The open window of %s now ends at %s.", chat.Label(), c.when(w.Until))
+	}
+	return note.String(), nil
 }
 
 // parseModeArgs reads "<chat> <mode> [<length> [<lookback>]]". The chat can contain spaces.
@@ -106,7 +142,7 @@ func (c *Core) windowLines(ctx context.Context) ([]string, error) {
 	lines := make([]string, len(windows))
 	for i, w := range windows {
 		chat, _ := c.st.Chat(ctx, w.Chat)
-		lines[i] = fmt.Sprintf("%s, until %s, for %s", chat.Label(), w.Until.In(c.cfg.Location).Format("15:04"), w.Session)
+		lines[i] = fmt.Sprintf("%s, until %s, for %s", chat.Label(), c.when(w.Until), w.Session)
 	}
 	return lines, nil
 }
@@ -137,7 +173,11 @@ func cmdWindow(ctx context.Context, c *Core, args string) (string, error) {
 		if !ok || value == "" {
 			return "", errors.New("use /window, /window length|lookback|wake|stop|start|end <value>, or /window close <chat>")
 		}
+		before := c.windowLengths(ctx)
 		if err := c.setWindowSetting(ctx, s, value); err != nil {
+			return "", err
+		}
+		if _, err := c.resizeWindows(ctx, before); err != nil {
 			return "", err
 		}
 	}

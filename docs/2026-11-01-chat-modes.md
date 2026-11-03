@@ -74,6 +74,8 @@ When the window opens, WhatsAgent sends a start message to the chat, with the ha
 
 Each later trigger while the window is open, with or without a wake phrase, moves the window's end to the window length after that trigger, and never earlier than the current end. The start stays where it was, so the agent keeps the same lookback. Extending sends no message, and the agent receives the trigger like any other message.
 
+A new window length, set with `/mode <chat> window <length>` or `/window length`, applies to an open window at once: the window then ends at the new length after the command, as if the owner had named the agent, and the answer to `/mode` says when. A length of `1d` set while a window is open therefore keeps the agent for a day from that moment.
+
 ### Ending
 
 A window ends in three ways:

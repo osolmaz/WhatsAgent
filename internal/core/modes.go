@@ -239,7 +239,7 @@ func (c *Core) closeWindow(ctx context.Context, chat string) bool {
 func (c *Core) announce(w model.Window, mode model.ChatMode, key, fallback string) {
 	ctx := c.ctx
 	text := strings.NewReplacer("{name}", c.AgentName(ctx), "{length}", model.FormatDuration(mode.Length),
-		"{lookback}", model.FormatDuration(mode.Lookback), "{until}", w.Until.In(c.cfg.Location).Format("15:04"),
+		"{lookback}", model.FormatDuration(mode.Lookback), "{until}", c.when(w.Until),
 	).Replace(c.setting(ctx, key, fallback))
 	if _, err := c.sendText(ctx, w.Chat, withPrefix(c.prefixFor(ctx, w.Session, w.Chat), text)); err != nil {
 		c.log.Warn("send window message", "chat", w.Chat, "err", err)
