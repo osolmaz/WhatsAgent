@@ -12,7 +12,8 @@ import (
 // "Chat modes" specification in docs. A trigger is a message that the owner typed in a chat
 // other than the self-chat that names the agents or answers an agent message. In the window
 // mode, a trigger with a wake phrase opens the chat's window, any trigger extends an open window,
-// and a trigger with a stop phrase closes it.
+// and a trigger with a stop phrase closes it. In the all mode, a trigger with a stop phrase puts
+// the chat in the window mode, so that a wake phrase can open a window there again.
 const (
 	everyChat       = "*"
 	settingLength   = "window.length"
@@ -27,7 +28,7 @@ const (
 	defaultStop     = "stop watching, stop monitoring, turn off"
 	defaultStart    = "Now monitoring this chat until {until}. I can read the messages of the last {lookback} " +
 		"and everything new. Mention {name} to extend it by {length}, or say \"{name} stop watching\" to end it."
-	defaultEnd = "I am done here. Mention {name} when you need me again."
+	defaultEnd = "I am done here. Say \"{name} {wake}\" when you need me again."
 )
 
 // chatMode returns the mode of chat with its window lengths filled in: the chat's own mode, else
@@ -167,17 +168,54 @@ func (c *Core) says(ctx context.Context, text, key, fallback string) bool {
 	return false
 }
 
-// runTrigger runs the window mode for a new live message that is a trigger: a stop phrase closes
-// the chat's window, any trigger extends an open window, and a wake phrase opens a closed one. A
-// message that is already stored, which WhatsApp can send twice, runs nothing.
+// wakePhrase returns the first wake phrase, which the window messages name.
+func (c *Core) wakePhrase(ctx context.Context) string {
+	if phrases := c.phrases(ctx, settingWake, defaultWake); len(phrases) > 0 {
+		return phrases[0]
+	}
+	return ""
+}
+
+// runTrigger runs the chat's mode for a new live message that is a trigger. In the window mode, a
+// stop phrase closes the chat's window, any trigger extends an open window, and a wake phrase
+// opens a closed one. In the all mode, a stop phrase puts the chat in the window mode. A message
+// that is already stored, which WhatsApp can send twice, runs nothing.
 func (c *Core) runTrigger(ctx context.Context, m model.Message) {
 	if !c.trigger(ctx, m) {
 		return
 	}
-	mode := c.chatMode(ctx, m.Chat)
-	if _, stored, err := c.st.Message(ctx, m.Chat, m.ID); mode.Mode == model.ModeWindow && err == nil && !stored {
-		c.moveWindow(ctx, mode, m.Text)
+	if _, stored, err := c.st.Message(ctx, m.Chat, m.ID); err != nil || stored {
+		return
 	}
+	switch mode := c.chatMode(ctx, m.Chat); mode.Mode {
+	case model.ModeWindow:
+		c.moveWindow(ctx, mode, m.Text)
+	case model.ModeAll:
+		if c.says(ctx, m.Text, settingStop, defaultStop) {
+			c.stopWatching(ctx, m.Chat)
+		}
+	}
+}
+
+// stopWatching puts a chat that is in the all mode in the window mode, with no window open, and
+// sends the end message there. Its handler then sees nothing more of the chat, as after a window,
+// and the next wake phrase opens a window. The chat keeps its own window lengths, if it has any.
+func (c *Core) stopWatching(ctx context.Context, chat string) {
+	mode := model.ChatMode{Chat: chat, Mode: model.ModeWindow}
+	if own, ok, err := c.st.ChatMode(ctx, chat); err == nil && ok {
+		mode.Length, mode.Lookback = own.Length, own.Lookback
+	}
+	handler, err := c.handler(ctx, chat)
+	if err == nil {
+		err = c.st.SetChatMode(ctx, mode)
+	}
+	if err != nil {
+		c.log.Warn("stop watching", "chat", chat, "err", err)
+		return
+	}
+	w := model.Window{Chat: chat, Session: handler, Until: time.Now().UTC()}
+	full := c.chatMode(ctx, chat)
+	c.spawn(func() { c.announce(w, full, settingEnd, defaultEnd) })
 }
 
 // moveWindow closes, extends or opens the chat's window for a trigger with text.
@@ -239,7 +277,7 @@ func (c *Core) closeWindow(ctx context.Context, chat string) bool {
 func (c *Core) announce(w model.Window, mode model.ChatMode, key, fallback string) {
 	ctx := c.ctx
 	text := strings.NewReplacer("{name}", c.AgentName(ctx), "{length}", model.FormatDuration(mode.Length),
-		"{lookback}", model.FormatDuration(mode.Lookback), "{until}", c.when(w.Until),
+		"{lookback}", model.FormatDuration(mode.Lookback), "{until}", c.when(w.Until), "{wake}", c.wakePhrase(ctx),
 	).Replace(c.setting(ctx, key, fallback))
 	if _, err := c.sendText(ctx, w.Chat, withPrefix(c.prefixFor(ctx, w.Session, w.Chat), text)); err != nil {
 		c.log.Warn("send window message", "chat", w.Chat, "err", err)

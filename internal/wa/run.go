@@ -52,6 +52,8 @@ var states = map[string]string{
 	"*events.TemporaryBan":     "temporarily banned",
 	"*events.ClientOutdated":   "client outdated",
 	"*events.KeepAliveTimeout": "keepalive timeout",
+	// whatsmeow sends KeepAliveRestored when the pings work again after a timeout.
+	"*events.KeepAliveRestored": "connected",
 }
 
 func (c *Client) dispatch(ctx context.Context, h Handler, evt any) {

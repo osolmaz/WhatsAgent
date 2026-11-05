@@ -113,7 +113,7 @@ func TestWindowModeWithChatAgent(t *testing.T) {
 	}
 	_ = events(t, agent.fakePusher)
 	h.receive("g@g.us", "Bob, stop watching please", true)
-	h.expectText("🤖 *Bob*: I am done here. Mention Bob when you need me again.")
+	h.expectText(`🤖 *Bob*: I am done here. Say "Bob start" when you need me again.`)
 	if _, open, _ := h.st.Window(ctx, "g@g.us"); open {
 		t.Fatal("the stop phrase left the window open")
 	}
@@ -219,6 +219,64 @@ func TestKeywordAndOffModes(t *testing.T) {
 	}
 	if _, ok, _ := h.st.ChatMode(ctx, "g@g.us"); ok {
 		t.Error("/unroute left the chat's mode")
+	}
+}
+
+func TestStopPhraseInAllMode(t *testing.T) {
+	h := newHarness(t)
+	ctx := h.ctx
+	h.core.OnChatName("g@g.us", "Team")
+	_, _ = h.core.Run(ctx, phoneOwner, "/name Bob")
+	_, _ = h.core.Run(ctx, phoneOwner, "/route Team billing")
+	_, _ = h.core.Run(ctx, phoneOwner, "/mode Team all 2h 1d")
+	h.keep("g@g.us")
+	token, _, _ := h.core.CheckIn(ctx, model.Session{Name: "billing"})
+	p := newPusher()
+	go func() { _ = h.core.Subscribe(ctx, token, "channel", p) }()
+	time.Sleep(50 * time.Millisecond)
+
+	// A plain "stop" and another person's stop phrase reach the agent, and the chat stays in the
+	// all mode.
+	for _, m := range []struct {
+		text   string
+		fromMe bool
+	}{{"Bob stop", true}, {"Bob, stop watching", false}} {
+		h.receive("g@g.us", m.text, m.fromMe)
+		if got := events(t, p); got[0].Message.Text != m.text {
+			t.Fatalf("%q pushed %+v", m.text, got)
+		}
+	}
+	if m := h.core.chatMode(ctx, "g@g.us"); m.Mode != model.ModeAll {
+		t.Fatalf("mode = %+v", m)
+	}
+
+	// The owner's stop phrase puts the chat in the window mode, with its own lengths, and says so.
+	h.receive("g@g.us", "bob stop watching this chat", true)
+	h.expectText(`🤖 *Bob*: I am done here. Say "Bob start" when you need me again.`)
+	if m, ok, _ := h.st.ChatMode(ctx, "g@g.us"); !ok || m.Mode != model.ModeWindow || m.Length != 2*time.Hour ||
+		m.Lookback != 24*time.Hour {
+		t.Errorf("mode after the stop phrase = %+v, %v", m, ok)
+	}
+	if _, open, _ := h.st.Window(ctx, "g@g.us"); open {
+		t.Error("the stop phrase opened a window")
+	}
+	h.receive("g@g.us", "after the stop", false)
+	quiet(t, p)
+
+	// The next wake phrase opens a window, as in any chat in the window mode.
+	h.receive("g@g.us", "Bob wake up", true)
+	h.expect("Now monitoring this chat until")
+	if got := events(t, p); len(got) != 1 || got[0].Message.Text != "Bob wake up" {
+		t.Fatalf("wake pushed %+v", got)
+	}
+
+	// A chat in the all mode of every chat gets its own window mode, with the default lengths.
+	_, _ = h.core.Run(ctx, phoneOwner, "/mode * all")
+	h.core.OnChatName("x@g.us", "Other")
+	h.receive("x@g.us", "Bob, turn off", true)
+	h.expect("I am done here")
+	if m, ok, _ := h.st.ChatMode(ctx, "x@g.us"); !ok || m.Mode != model.ModeWindow || m.Length != 0 || m.Lookback != 0 {
+		t.Errorf("mode of Other = %+v, %v", m, ok)
 	}
 }
 
