@@ -644,6 +644,18 @@ func TestSessionCommandsWaitForOwner(t *testing.T) {
 	code = h.expectCode("/deny bot *")
 	h.receive(self, "n "+code, true)
 	h.expect("Not run.")
+	_, _ = h.core.Run(ctx, bot, "/mode Team off")
+	asked := h.expect("bot wants to run: /mode Team off\nIn the off mode, no agent sees the chat")
+	h.receive(self, "no "+codePattern.FindStringSubmatch(asked.text)[1], true)
+	h.expect("Not run.")
+	for line, want := range map[string]bool{"mode Team off": true, "mode Team <> Sam off 1h": true,
+		"mode Team window": false, "mode": false, "route Team bot off": true, "route Team bot": false,
+		"allow bot off": false} {
+		name, args, _ := strings.Cut(line, " ")
+		if got := setsOff(name, args); got != want {
+			t.Errorf("setsOff(%q) = %v", line, got)
+		}
+	}
 	_, _ = h.core.Run(ctx, bot, "/route nowhere bot")
 	code = h.expectCode("/route nowhere bot")
 	h.core.answer(ctx, self, code, true)
@@ -677,6 +689,14 @@ func TestSessionCommandsWaitForOwner(t *testing.T) {
 	code = h.expectCode("bot wants the chat Team routed to it in the keyword mode")
 	h.receive(self, "yes "+code, true)
 	h.expect("Team now goes to bot in the keyword mode")
+	// A question for the off mode says that naming the agents in the chat does not undo it.
+	_, _ = h.core.RouteHere(ctx, bot, "Team", "", "off")
+	asked = h.expect("bot wants the chat Team routed to it in the off mode.")
+	if !strings.Contains(asked.text, `"Agent start" there does nothing. Only /mode in the self-chat`) {
+		t.Errorf("off question = %q", asked.text)
+	}
+	h.receive(self, "no "+codePattern.FindStringSubmatch(asked.text)[1], true)
+	h.expect("Not routed.")
 	_, _ = h.core.RouteHere(ctx, bot, "Team", "", "")
 	code = h.expectCode("routed to it in the all mode")
 	h.receive(self, "no "+code, true)

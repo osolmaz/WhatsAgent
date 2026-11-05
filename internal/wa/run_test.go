@@ -215,10 +215,13 @@ func TestDispatch(t *testing.T) {
 	c.dispatch(ctx, r, &events.LoggedOut{})
 	c.dispatch(ctx, r, &events.StreamReplaced{})
 	c.dispatch(ctx, r, &events.Receipt{})
+	c.dispatch(ctx, r, &events.KeepAliveTimeout{})
+	c.dispatch(ctx, r, &events.KeepAliveRestored{})
 	time.Sleep(50 * time.Millisecond)
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if len(r.states) != 3 || r.states[0] != "connected" || r.states[1] != "logged out" {
+	if len(r.states) != 5 || r.states[0] != "connected" || r.states[1] != "logged out" ||
+		r.states[3] != "keepalive timeout" || r.states[4] != "connected" {
 		t.Errorf("states = %v", r.states)
 	}
 	if c.ChatName(ctx, "4915550000@s.whatsapp.net") != "Kim Park" || c.name(ctx, "5@s.whatsapp.net") != "5" {

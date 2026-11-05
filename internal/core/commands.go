@@ -111,13 +111,22 @@ func (c *Core) Run(ctx context.Context, caller Caller, line string) (string, err
 		case caller.owner:
 			return "", errPhone(name, args)
 		}
-		code := c.ask(fmt.Sprintf("%s wants to run: /%s %s", caller.Session, cmd.name, args),
-			func(ctx context.Context, allow bool) string {
-				return c.runApproved(ctx, cmd, args, allow)
-			})
-		return fmt.Sprintf("waiting for the owner's approval in the self-chat (code %s)", code), nil
+		return c.askToRun(ctx, caller, cmd, args), nil
 	}
 	return "", fmt.Errorf("unknown command /%s; send /help for the list", name)
+}
+
+// askToRun asks the owner whether cmd with args may run for a session, and warns when it puts a
+// chat in the off mode.
+func (c *Core) askToRun(ctx context.Context, caller Caller, cmd command, args string) string {
+	question := fmt.Sprintf("%s wants to run: /%s %s", caller.Session, cmd.name, args)
+	if setsOff(cmd.name, args) {
+		question += "\n" + c.offWarning(ctx)
+	}
+	code := c.ask(question, func(ctx context.Context, allow bool) string {
+		return c.runApproved(ctx, cmd, args, allow)
+	})
+	return fmt.Sprintf("waiting for the owner's approval in the self-chat (code %s)", code)
 }
 
 func (c *Core) runApproved(ctx context.Context, cmd command, args string, allow bool) string {
@@ -252,6 +261,27 @@ func cmdChats(ctx context.Context, c *Core, query string) (string, error) {
 		lines[i] = fmt.Sprintf("%s: %s", chat.Label(), chat.JID)
 	}
 	return strings.Join(lines, "\n"), nil
+}
+
+// setsOff reports whether the command name with args puts a chat in the off mode.
+func setsOff(name, args string) bool {
+	switch name {
+	case "mode":
+		_, m, err := parseModeArgs(args)
+		return err == nil && m.Mode == model.ModeOff
+	case "route":
+		_, last, err := splitLast(args)
+		m, perr := model.ParseMode(last)
+		return err == nil && perr == nil && m == model.ModeOff
+	}
+	return false
+}
+
+// offWarning tells the owner, in a question, that a chat in the off mode does not wake up from
+// inside the chat.
+func (c *Core) offWarning(ctx context.Context) string {
+	return fmt.Sprintf("In the off mode, no agent sees the chat, and \"%s %s\" there does nothing. Only /mode "+
+		"in the self-chat turns it on again.", c.AgentName(ctx), c.wakePhrase(ctx))
 }
 
 // splitLast splits "a b c" into "a b" and "c".

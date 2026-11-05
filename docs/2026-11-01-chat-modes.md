@@ -84,9 +84,19 @@ A window ends in three ways:
 - `/window close <chat>` from the self-chat.
 - The window's end time. WhatsAgent checks every 10 seconds.
 
-When a window ends, WhatsAgent sends an end message to the chat, by default "I am done here. Mention Bob when you need me again." The agent then sleeps. It receives nothing more from the chat, it can no longer read the chat, and its sends to the chat ask the owner first. The next trigger opens a new window, with a new lookback from that trigger. Messages from an earlier window do not become readable again, but a chat agent keeps its harness session, so it remembers what it saw before.
+When a window ends, WhatsAgent sends an end message to the chat. By default it names the first wake phrase:
+
+> 🤖 **Bob**: I am done here. Say "Bob start" when you need me again.
+
+The agent then sleeps. It receives nothing more from the chat, it can no longer read the chat, and its sends to the chat ask the owner first. The next trigger with a wake phrase opens a new window, with a new lookback from that trigger. Messages from an earlier window do not become readable again, but a chat agent keeps its harness session, so it remembers what it saw before.
 
 Switching a chat to another mode removes its open window without an end message, because the new mode replaces the window.
+
+### Stopping a chat in the all mode
+
+A trigger with a stop phrase in a chat in the `all` mode puts the chat in the `window` mode, with no window open, and WhatsAgent sends the end message there. The chat keeps its own window length and lookback, if it has them. Its handler does not receive the stop message and sees nothing more of the chat, as after a window. The next trigger with a wake phrase opens a window, so the owner stops and wakes the agent with the same words in every chat. `/mode <chat> all` gives the handler the whole chat again.
+
+WhatsAgent does this itself, so the handler never has to choose a mode for the owner. A handler that chose the `off` mode for "Bob stop watching" would leave a chat that no wake phrase can open. The `off` mode is for a chat where the agent name must never open anything, so it changes only through `/mode` in the self-chat. When a session asks the owner for the `off` mode, with `route_here` or with a `/mode` or `/route` command, the question says this.
 
 ### Settings
 
@@ -98,7 +108,7 @@ Switching a chat to another mode removes its open window without an end message,
 | `/window lookback <duration>` | How far back a new window starts. The default is 30 minutes; 5m, 10m, 1h or 1d also work. |
 | `/window wake <phrase>, <phrase>, ...` | The wake phrases. The defaults are "start", "wake up", "monitor", "watch" and "turn on". |
 | `/window stop <phrase>, <phrase>, ...` | The stop phrases. The defaults are "stop watching", "stop monitoring" and "turn off". |
-| `/window start <text>` | The start message. `{name}`, `{length}`, `{lookback}` and `{until}` are filled in. |
+| `/window start <text>` | The start message. `{name}`, `{length}`, `{lookback}`, `{until}` and `{wake}`, the first wake phrase, are filled in. |
 | `/window end <text>` | The end message, with the same placeholders. |
 | `/window close <chat>` | Ends the chat's window now. |
 

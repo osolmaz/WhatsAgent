@@ -418,7 +418,11 @@ func (c *Core) RouteHere(ctx context.Context, caller Caller, ref, prefix, mode s
 		return c.setRoute(ctx, route, m)
 	}
 	chat, _ := c.st.Chat(ctx, jid)
-	code := c.ask(fmt.Sprintf("%s wants the chat %s routed to it in the %s mode.", caller.Session, chat.Label(), m),
+	question := fmt.Sprintf("%s wants the chat %s routed to it in the %s mode.", caller.Session, chat.Label(), m)
+	if m == model.ModeOff {
+		question += " " + c.offWarning(ctx)
+	}
+	code := c.ask(question,
 		func(ctx context.Context, allow bool) string {
 			if !allow {
 				return "Not routed."
