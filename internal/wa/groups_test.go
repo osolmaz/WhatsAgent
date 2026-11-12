@@ -27,6 +27,15 @@ func TestGroupsWithoutConnection(t *testing.T) {
 	if _, err := c.JoinGroup(ctx, "https://chat.whatsapp.com/AbC"); err == nil {
 		t.Error("JoinGroup without a connection gave no error")
 	}
+	if _, err := c.Groups(ctx); err == nil {
+		t.Error("Groups without a connection gave no error")
+	}
+	// The connect resync gives up quietly without a connection.
+	r := &recorder{names: map[string]string{}}
+	c.loadGroupNames(ctx, r)
+	if len(r.names) != 0 {
+		t.Errorf("names = %v", r.names)
+	}
 	// Every action reaches WhatsApp and fails without a connection.
 	for action, needs := range model.GroupActions {
 		change := model.GroupChange{Action: action, Text: "x"}

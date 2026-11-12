@@ -33,6 +33,15 @@ type fakeWA struct {
 	failSend   error
 	uploads    int
 	failUpload error
+	groups     map[string]string
+	failGroups error
+}
+
+// Groups returns the groups that a test gave the fake.
+func (f *fakeWA) Groups(context.Context) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.groups, f.failGroups
 }
 
 // Upload makes an .ogg file audio, a .png file a photo and every other file a document.
@@ -823,6 +832,23 @@ func TestResolveChat(t *testing.T) {
 	}
 	if _, err := h.core.resolveChat(ctx, "nobody"); err == nil {
 		t.Error("no match gave no error")
+	}
+}
+
+// A group that WhatsAgent has not heard of is found by name after one reload from WhatsApp.
+func TestResolveChatReloadsGroups(t *testing.T) {
+	h := newHarness(t)
+	h.wa.mu.Lock()
+	h.wa.groups = map[string]string{"r@g.us": "Legal AI Research"}
+	h.wa.mu.Unlock()
+	if got, err := h.core.resolveChat(h.ctx, "Legal AI Research"); err != nil || got != "r@g.us" {
+		t.Errorf("resolveChat = %q, %v; want r@g.us", got, err)
+	}
+	h.wa.mu.Lock()
+	h.wa.groups, h.wa.failGroups = nil, errors.New("offline")
+	h.wa.mu.Unlock()
+	if _, err := h.core.resolveChat(h.ctx, "nobody"); err == nil || !strings.Contains(err.Error(), "no chat matches") {
+		t.Errorf("a failed reload = %v; want no chat matches", err)
 	}
 }
 

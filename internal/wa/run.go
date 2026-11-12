@@ -66,6 +66,8 @@ func (c *Client) dispatch(ctx context.Context, h Handler, evt any) {
 		if e.Name != nil {
 			h.OnChatName(e.JID.String(), e.Name.Name)
 		}
+	case *events.JoinedGroup:
+		h.OnChatName(e.JID.String(), e.Name)
 	case *events.Connected:
 		h.OnState("connected")
 		go c.loadGroupNames(ctx, h)
@@ -126,13 +128,26 @@ func (c *Client) onHistory(ctx context.Context, h Handler, evt *events.HistorySy
 }
 
 func (c *Client) loadGroupNames(ctx context.Context, h Handler) {
-	groups, err := c.cli.GetJoinedGroups(ctx)
+	groups, err := c.Groups(ctx)
 	if err != nil {
 		return
 	}
-	for _, g := range groups {
-		h.OnChatName(g.JID.String(), g.Name)
+	for jid, name := range groups {
+		h.OnChatName(jid, name)
 	}
+}
+
+// Groups returns the name of every group that the owner is in, by JID, as WhatsApp tells it now.
+func (c *Client) Groups(ctx context.Context) (map[string]string, error) {
+	groups, err := c.cli.GetJoinedGroups(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(groups))
+	for _, g := range groups {
+		names[g.JID.String()] = g.Name
+	}
+	return names, nil
 }
 
 // canonical returns the phone-number form of a LID address when the session store knows it,

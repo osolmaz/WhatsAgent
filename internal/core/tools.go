@@ -74,11 +74,34 @@ func (c *Core) resolveChat(ctx context.Context, ref string) (string, error) {
 	return c.chatByName(ctx, ref)
 }
 
+// chatByName finds a chat by its name. When no stored name matches, it reloads the owner's groups
+// from WhatsApp once and looks again, so a group that WhatsAgent has not heard of yet is found.
 func (c *Core) chatByName(ctx context.Context, ref string) (string, error) {
 	chats, err := c.st.Chats(ctx, ref, 20)
+	if err == nil && len(chats) == 0 {
+		c.reloadGroups(ctx)
+		chats, err = c.st.Chats(ctx, ref, 20)
+	}
 	if err != nil {
 		return "", err
 	}
+	return pickChat(ref, chats)
+}
+
+// reloadGroups stores the names of the owner's groups as WhatsApp tells them now.
+func (c *Core) reloadGroups(ctx context.Context) {
+	groups, err := c.wa.Groups(ctx)
+	if err != nil {
+		c.log.Warn("load groups", "err", err)
+		return
+	}
+	for jid, name := range groups {
+		c.OnChatName(jid, name)
+	}
+}
+
+// pickChat chooses the chat that ref names: the one whose name equals ref, or the only match.
+func pickChat(ref string, chats []model.Chat) (string, error) {
 	for _, chat := range chats {
 		if strings.EqualFold(chat.Name, ref) {
 			return chat.JID, nil
