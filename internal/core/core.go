@@ -35,6 +35,8 @@ type WhatsApp interface {
 	MarkRead(ctx context.Context, chat, sender, id string, sent time.Time) error
 	// Groups: what WhatsApp tells about one, and creating, changing and joining one.
 	GroupInfo(ctx context.Context, chat string) (model.Group, error)
+	// Groups returns the name of every group that the owner is in, by JID.
+	Groups(ctx context.Context) (map[string]string, error)
 	CreateGroup(ctx context.Context, name string, members []string) (string, error)
 	ChangeGroup(ctx context.Context, chat string, change model.GroupChange) (string, error)
 	JoinGroup(ctx context.Context, link string) (string, error)

@@ -98,6 +98,11 @@ func (f *WhatsApp) GroupInfo(_ context.Context, chat string) (model.Group, error
 	return model.Group{JID: chat, Name: "Team", Members: []model.Member{{JID: "200@s.whatsapp.net", Name: "Sam"}}}, nil
 }
 
+// Groups implements core.WhatsApp with one group, Team.
+func (f *WhatsApp) Groups(context.Context) (map[string]string, error) {
+	return map[string]string{"team@g.us": "Team"}, nil
+}
+
 // CreateGroup implements core.WhatsApp.
 func (f *WhatsApp) CreateGroup(_ context.Context, name string, _ []string) (string, error) {
 	f.Sent <- Sent{Text: name, Kind: "create"}

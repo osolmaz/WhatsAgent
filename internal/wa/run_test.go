@@ -196,6 +196,8 @@ func TestDispatch(t *testing.T) {
 
 	c.dispatch(ctx, r, &events.GroupInfo{JID: *mustJID(t, "9@g.us"), Name: &types.GroupName{Name: "Team"}})
 	c.dispatch(ctx, r, &events.GroupInfo{JID: *mustJID(t, "9@g.us")})
+	c.dispatch(ctx, r, &events.JoinedGroup{Reason: "invite",
+		GroupInfo: types.GroupInfo{JID: *mustJID(t, "7@g.us"), GroupName: types.GroupName{Name: "Research"}}})
 	webMsg := &waWeb.WebMessageInfo{Key: &waCommon.MessageKey{RemoteJID: proto.String("8@g.us"), ID: proto.String("H1"),
 		Participant: proto.String("2@s.whatsapp.net")}, MessageTimestamp: proto.Uint64(1700000000),
 		Message: &waE2E.Message{Conversation: proto.String("old")}}
@@ -204,7 +206,7 @@ func TestDispatch(t *testing.T) {
 		{ID: proto.String("8@g.us"), Name: proto.String("Old group"), Messages: []*waHistorySync.HistorySyncMsg{{Message: webMsg}}},
 		{ID: proto.String("not a jid@@")},
 	}}})
-	if r.names["9@g.us"] != "Team" || r.names["8@g.us"] != "Old group" {
+	if r.names["9@g.us"] != "Team" || r.names["8@g.us"] != "Old group" || r.names["7@g.us"] != "Research" {
 		t.Errorf("names = %v", r.names)
 	}
 	// The history gives chat names only; its messages are never passed on.

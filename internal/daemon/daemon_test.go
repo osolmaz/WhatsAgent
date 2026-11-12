@@ -194,6 +194,7 @@ func (fakeWA) Download(context.Context, []byte) ([]byte, error)            { ret
 func (fakeWA) ChatName(context.Context, string) string                     { return "" }
 func (fakeWA) Typing(context.Context, string) error                        { return nil }
 func (fakeWA) GroupInfo(context.Context, string) (model.Group, error)      { return model.Group{}, nil }
+func (fakeWA) Groups(context.Context) (map[string]string, error)           { return nil, nil }
 func (fakeWA) CreateGroup(context.Context, string, []string) (string, error) {
 	return "", nil
 }
