@@ -77,7 +77,7 @@ After linking, the owner starts `whatsagent daemon`. On its first start the daem
 
 The self-chat is where the owner controls WhatsAgent and talks to home. Four kinds of message appear there.
 
-Commands start with `/`. WhatsAgent answers them at once without calling a model, so they are free and always behave the same way. The first set is small:
+Commands start with `/`. WhatsAgent answers them at once without calling a model, so they are free and always behave the same way. One message can hold several commands, one per line: when every non-empty line starts with `/` or is an approval answer, each line runs on its own and gets its own answer. Otherwise the whole message is one command, so a command's text can span lines. The first set is small:
 
 | Command | Effect |
 | --- | --- |

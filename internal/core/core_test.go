@@ -324,6 +324,28 @@ func events(t *testing.T, p *fakePusher) []model.Event {
 	return nil
 }
 
+// A message whose every line is a command runs each line; any other message is one command.
+func TestMultiLineCommands(t *testing.T) {
+	h := newHarness(t)
+	h.receive(self, "/allow bot a@g.us\n\n/allow bot b@g.us\n", true)
+	h.expect("allow bot -> a@g.us")
+	h.expect("allow bot -> b@g.us")
+	rules, err := h.st.Rules(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chats := map[string]bool{}
+	for _, r := range rules {
+		chats[r.Chat] = true
+	}
+	if len(rules) != 2 || !chats["a@g.us"] || !chats["b@g.us"] {
+		t.Errorf("rules = %+v; want one for a@g.us and one for b@g.us", rules)
+	}
+	if got := commandLines("/prefix Bob\nsays hi"); len(got) != 1 || got[0] != "/prefix Bob\nsays hi" {
+		t.Errorf("a command with a second text line = %q; want the whole message", got)
+	}
+}
+
 func TestWelcomeCommandsAndStatus(t *testing.T) {
 	h := newHarness(t)
 	h.core.OnState("connected")

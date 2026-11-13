@@ -541,9 +541,33 @@ func (c *Core) fillChatName(ctx context.Context, m model.Message) {
 	c.OnChatName(m.Chat, name)
 }
 
-// handleCommand runs a command line or an approval answer that the owner wrote in chat. Only
-// answers come from chats other than the self-chat.
+// handleCommand runs the command lines or approval answers that the owner wrote in one message.
+// Only answers come from chats other than the self-chat.
 func (c *Core) handleCommand(ctx context.Context, chat, text string) {
+	for _, line := range commandLines(text) {
+		c.handleLine(ctx, chat, line)
+	}
+}
+
+// commandLines splits a message into its commands. When every non-empty line is a command or an
+// answer, each line runs on its own; otherwise the whole message is one command, so a command's
+// argument may span lines.
+func commandLines(text string) []string {
+	var lines []string
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !isCommand(line) {
+			return []string{text}
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// handleLine runs one command line or approval answer.
+func (c *Core) handleLine(ctx context.Context, chat, text string) {
 	if v := verdictPattern.FindStringSubmatch(text); v != nil {
 		c.answer(ctx, chat, strings.ToLower(v[2]), strings.HasPrefix(strings.ToLower(v[1]), "y"))
 		return
