@@ -200,6 +200,32 @@ func TestWatch(t *testing.T) {
 	}
 }
 
+// TestWatchNoReactions checks that --no-reactions leaves reactions out and prints the rest, so a
+// Monitor needs no grep pipe.
+func TestWatchNoReactions(t *testing.T) {
+	env, d := daemonEnv(t)
+	keep(t, d, "g@g.us")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out := make(chan string, 1)
+	go func() {
+		got, _ := runCtx(ctx, env, "", "watch", "--chat", "g@g.us", "--since", "0", "--no-reactions")
+		out <- got
+	}()
+	time.Sleep(200 * time.Millisecond)
+	first := d.Receive("g@g.us", "watched message", false)
+	d.Core.OnUpdate(model.Update{Kind: model.New, Message: model.Message{Chat: "g@g.us", ID: "R1",
+		Sender: "200@s.whatsapp.net", SenderName: "Sam", Time: time.Now().UTC(), Reaction: "👍", ReactionTo: first.ID}})
+	d.Receive("g@g.us", "after the reaction", false)
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	got := <-out
+	if !strings.Contains(got, "watched message") || !strings.Contains(got, "after the reaction") ||
+		strings.Contains(got, "[reaction") {
+		t.Errorf("watch --no-reactions printed %q", got)
+	}
+}
+
 // TestCLIReadsOnlyKeptChats is the CLI boundary: no command prints a message of a chat that is
 // not kept, and no command changes what is kept, routed or shown.
 func TestCLIReadsOnlyKeptChats(t *testing.T) {
