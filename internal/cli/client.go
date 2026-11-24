@@ -406,12 +406,15 @@ func newWatch(env paths.Env) *cobra.Command {
 	var session string
 	var chats []string
 	var since int64
+	var noReactions bool
 	cmd := &cobra.Command{
-		Use:   "watch [--session <name>] [--chat <chat>]...",
+		Use:   "watch [--session <name>] [--chat <chat>]... [--no-reactions]",
 		Short: "Print each new message of a session's routed chats and the given chats as one line",
 		Long: "Print each new message of a session's routed chats, plus the --chat chats, as one line,\n" +
 			"until stopped. WhatsAgent keeps the session's place, so a restart misses nothing. Run it with\n" +
-			"Claude Code's Monitor tool to wake a session that runs without the WhatsAgent channel.",
+			"Claude Code's Monitor tool to wake a session that runs without the WhatsAgent channel.\n" +
+			"Run it alone, without a pipe: in Claude Code's shell, grep is Claude Code's own ugrep, which\n" +
+			"holds each line until the next one arrives. Use --no-reactions to leave reactions out.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			client, err := daemonClient(env)
@@ -424,6 +427,9 @@ func newWatch(env paths.Env) *cobra.Command {
 			out := cmd.OutOrStdout()
 			return client.Watch(cmd.Context(), session, chats, since, func(f api.Frame) error {
 				for _, e := range f.Events {
+					if noReactions && (e.Message.Reaction != "" || e.Message.ReactionTo != "") {
+						continue
+					}
 					fmt.Fprintln(out, oneLine(model.Line(e.Message, e.ChatName, time.Local)))
 				}
 				return nil
@@ -433,5 +439,6 @@ func newWatch(env paths.Env) *cobra.Command {
 	cmd.Flags().StringVar(&session, "session", "", "the session name whose routes to watch")
 	cmd.Flags().StringArrayVar(&chats, "chat", nil, "a chat to watch as well (repeatable)")
 	cmd.Flags().Int64Var(&since, "since", -1, "start after this event number; 0 replays every stored message")
+	cmd.Flags().BoolVar(&noReactions, "no-reactions", false, "leave out reactions to messages")
 	return cmd
 }
