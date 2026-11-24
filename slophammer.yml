@@ -38,9 +38,13 @@ go:
       allow: []
     - from: internal/peer
       allow: []
+    - from: internal/claudecode
+      allow:
+        - internal/model
     - from: internal/cli
       allow:
         - internal/api
+        - internal/claudecode
         - internal/core
         - internal/daemon
         - internal/mcp
@@ -79,12 +83,14 @@ go:
         - internal/web
     - from: internal/home
       allow:
+        - internal/claudecode
         - internal/core
         - internal/model
         - internal/term
     - from: internal/mcp
       allow:
         - internal/api
+        - internal/claudecode
         - internal/core
         - internal/model
         - internal/testkit

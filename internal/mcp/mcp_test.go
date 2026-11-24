@@ -130,7 +130,7 @@ func TestChannelSession(t *testing.T) {
 		t.Errorf("older revision not kept: %v", old)
 	}
 	c.send(`{"jsonrpc":"2.0","method":"notifications/initialized"}`)
-	if tools := c.call("tools/list", nil); len(tools["result"].(map[string]any)["tools"].([]any)) != len(toolList) {
+	if tools := c.call("tools/list", nil); len(tools["result"].(map[string]any)["tools"].([]any)) != len(toolList)+1 {
 		t.Errorf("tools/list = %v", tools)
 	}
 	if pong := c.call("ping", nil); pong["result"] == nil {

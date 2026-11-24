@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osolmaz/WhatsAgent/internal/claudecode"
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/paths"
 	"github.com/osolmaz/WhatsAgent/internal/testkit"
@@ -338,7 +339,11 @@ func TestSetupLaunchAndService(t *testing.T) {
 			t.Errorf("ran:\n%s\nmissing %q", joined, want)
 		}
 	}
-	for _, want := range []string{"exec claude --dangerously-load-development-channels server:whatsagent --resume x", "exec codex --remote unix:// resume"} {
+	for _, want := range []string{
+		"exec claude --dangerously-load-development-channels server:whatsagent --settings " +
+			claudecode.HookSettings("whatsagent") + " --resume x",
+		"exec codex --remote unix:// resume",
+	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("ran:\n%s\nmissing %q", joined, want)
 		}
