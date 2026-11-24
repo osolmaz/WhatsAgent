@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/osolmaz/WhatsAgent/internal/claudecode"
 	"github.com/osolmaz/WhatsAgent/internal/daemon"
 	"github.com/osolmaz/WhatsAgent/internal/mcp"
 	"github.com/osolmaz/WhatsAgent/internal/paths"
@@ -248,8 +249,9 @@ type harnessLaunch struct {
 }
 
 var launches = []harnessLaunch{
-	{"claude", "Start Claude Code with the WhatsAgent channel, so routed messages wake the session",
-		[]string{"--dangerously-load-development-channels", "server:whatsagent"}, "WHATSAGENT_PUSH=channel"},
+	{"claude", "Start Claude Code with the WhatsAgent channel, so routed messages wake the session and steer its running turns",
+		[]string{"--dangerously-load-development-channels", "server:whatsagent",
+			"--settings", claudecode.HookSettings("whatsagent")}, "WHATSAGENT_PUSH=channel"},
 	{"codex", "Start the Codex TUI on the Codex app-server daemon, so routed messages reach its thread",
 		[]string{"--remote", "unix://"}, ""},
 }

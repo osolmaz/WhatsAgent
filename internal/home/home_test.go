@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/osolmaz/WhatsAgent/internal/claudecode"
 	"github.com/osolmaz/WhatsAgent/internal/core"
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/term"
@@ -169,6 +170,7 @@ func TestStartClaudeInTerminal(t *testing.T) {
 	for _, want := range []string{"--dangerously-load-development-channels\nserver:whatsagent", "--append-system-prompt\nbe Bob",
 		"--allowedTools\nmcp__whatsagent", "--strict-mcp-config\n--mcp-config\n{\"mcpServers\":{}}", "--permission-mode\nauto",
 		"--session-id\n" + first, "--model\nclaude-opus-5-5", "WHATSAGENT_SESSION=chat-team",
+		"--settings\n" + claudecode.HookSettings("whatsagent"),
 		"TERM=xterm-256color"} {
 		if !strings.Contains(string(args), want) {
 			t.Errorf("args %q missing %q", args, want)

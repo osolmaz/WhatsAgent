@@ -38,6 +38,7 @@ Code and docs use one name for each concept:
 | command | A self-chat message that starts with `/`. WhatsAgent handles it, and no agent sees it. |
 | check-in | A session becoming known to WhatsAgent, through the WhatsAgent MCP server or through the harness's own API. |
 | adapter | The WhatsAgent code for one harness. It handles check-in, pushes, approval prompts and home for that harness. |
+| steer | Pass a routed message into a running turn of a Claude Code session, so the agent sees it before its next step. |
 | kept chat | A chat whose messages WhatsAgent stores in its database, because the owner kept it with `/keep`. The self-chat is always kept. |
 | recent buffer | The daemon's in-memory database for the messages of chats that are not kept, which it holds for at most 24 hours. |
 | run agent | An agent that WhatsAgent runs in a terminal of its own, home or a chat agent, which the daemon recognizes by its process. Only run agents read chats that are not kept. |
@@ -190,6 +191,8 @@ Claude Code and Codex each have their own way to wake a session and to ask for a
 
 The Claude Code adapter pushes through [Claude Code channels](https://code.claude.com/docs/en/channels). The `whatsagent claude` subcommand starts Claude Code with the WhatsAgent channel turned on, passes any other arguments through, and sets an environment variable that tells the MCP server pushes will arrive. The MCP server then declares the `claude/channel` capability and turns each routed event into a `notifications/claude/channel` message, which wakes Claude at once. With the `claude/channel/permission` capability, the same server receives Claude Code's approval prompts and relays them to the self-chat.
 
+Claude Code delivers channel messages that arrive during a turn only when the turn ends, so the adapter steers them itself ([Claude Code steering](2026-11-24-claude-code-steering.md)). `whatsagent claude`, home and chat agents start Claude Code with `mcp_tool` hooks, passed with `--settings`, that call the MCP server's `claude_code_hook` tool. From the hooks the server knows when the session is busy. It holds the messages that arrive meanwhile and returns them as the hooks' additional context after the running tool calls, at a new prompt, or at the end of the turn. An idle session gets its messages through the channel at once. When no hook comes for 5 minutes, as after an interrupted turn, the held messages go through the channel. The package `internal/claudecode` holds this Claude Code-specific part.
+
 A Claude Code session started without the channel flag can still receive pushes through `whatsagent watch`. Run under Claude Code's Monitor tool, `whatsagent watch --session <name> --chat <chat>` checks in as a push session and prints each routed message as one line, which the Monitor turns into a notification that wakes the session. WhatsAgent keeps the watch's cursor under the session name, so a restarted watch misses nothing. `--since 0` replays every stored message. This path needs no development flag and works in any session that has the Monitor tool. Claude Code Desktop loads MCP servers and plugins, but its docs do not mention channels, so it counts as tools-only until tested. Home on Claude Code runs as an interactive session in a terminal with the channel, as the "Home" section describes.
 
 ### Codex adapter
@@ -204,7 +207,7 @@ Codex Desktop and a TUI started without `--remote` run their own private app-ser
 
 | Harness and launch | Push | Approval relay | Home |
 | --- | --- | --- | --- |
-| Claude Code CLI started with `whatsagent claude` | channel | permission relay | terminal with the channel |
+| Claude Code CLI started with `whatsagent claude` | channel, steered into running turns | permission relay | terminal with the channel |
 | Claude Code CLI without the flag | `whatsagent watch` under the Monitor tool | none | none |
 | Claude Code Desktop | none until channels are tested | none | none |
 | Codex TUI started with `whatsagent codex` | `turn/start` on the daemon | app-server approval requests, if the test passes | daemon thread |
@@ -236,7 +239,7 @@ These rules bind the MCP tools. The `whatsagent` CLI acts as the owner, so a ses
 
 ## Delivery guarantees
 
-WhatsAgent delivers each message at least once. It keeps a cursor for each session name, and a session that checks in again gets every event after its cursor. Neither harness confirms that the agent read a pushed message. The Claude Code adapter advances the cursor once it has written the event to the session's MCP server, and the Codex adapter advances it once `turn/start` succeeds. Each push carries the WhatsApp message IDs, so a repeated delivery can be recognized and dropped. Events that arrive while the agent is busy wait and reach it together on its next turn.
+WhatsAgent delivers each message at least once. It keeps a cursor for each session name, and a session that checks in again gets every event after its cursor. Neither harness confirms that the agent read a pushed message. The Claude Code adapter advances the cursor once it has written the event to the session's MCP server, and the Codex adapter advances it once `turn/start` succeeds. Each push carries the WhatsApp message IDs, so a repeated delivery can be recognized and dropped. Events that arrive while a Codex agent is busy wait and reach it together on its next turn. A Claude Code session with the steering hooks gets them after its running tool calls; one without the hooks gets them at the end of the turn.
 
 ## Login import
 

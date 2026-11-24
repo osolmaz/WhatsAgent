@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/osolmaz/WhatsAgent/internal/claudecode"
 	"github.com/osolmaz/WhatsAgent/internal/core"
 	"github.com/osolmaz/WhatsAgent/internal/model"
 	"github.com/osolmaz/WhatsAgent/internal/term"
@@ -197,7 +198,7 @@ func args(opts ClaudeOptions, host *core.AgentHost, resume bool) []string {
 	id := host.SessionID
 	a := []string{"--dangerously-load-development-channels", "server:whatsagent",
 		"--append-system-prompt", opts.Instructions, "--allowedTools", "mcp__whatsagent",
-		"--strict-mcp-config", "--mcp-config", opts.MCPConfig}
+		"--strict-mcp-config", "--mcp-config", opts.MCPConfig, "--settings", claudecode.HookSettings("whatsagent")}
 	if host.Auto {
 		a = append(a, "--permission-mode", "auto")
 	}

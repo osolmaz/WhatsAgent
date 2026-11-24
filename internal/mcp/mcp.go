@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/osolmaz/WhatsAgent/internal/api"
+	"github.com/osolmaz/WhatsAgent/internal/claudecode"
 	"github.com/osolmaz/WhatsAgent/internal/model"
 )
 
@@ -41,6 +42,9 @@ type Options struct {
 	// pushes channel messages. Claude Code registers its channel handler only after the handshake,
 	// and drops a channel message that arrives before that.
 	Settle time.Duration
+	// Stale is how long held messages wait for a steering hook before the session counts as idle
+	// again and they go through the channel.
+	Stale time.Duration
 }
 
 // Server is one MCP server process.
@@ -59,6 +63,8 @@ type Server struct {
 	// pushReady closes Settle after the client's initialized notification.
 	pushReady chan struct{}
 	initOnce  sync.Once
+
+	steering *claudecode.Steering
 }
 
 // New returns a server that reaches the daemon through client and writes to out.
@@ -78,7 +84,12 @@ func New(opts Options, client *api.Client, out io.Writer) *Server {
 	if opts.Settle == 0 {
 		opts.Settle = 2 * time.Second
 	}
-	return &Server{opts: opts, api: client, out: out, ready: make(chan struct{}), pushReady: make(chan struct{})}
+	if opts.Stale == 0 {
+		opts.Stale = 5 * time.Minute
+	}
+	s := &Server{opts: opts, api: client, out: out, ready: make(chan struct{}), pushReady: make(chan struct{})}
+	s.steering = claudecode.NewSteering(s.notifyEvents, opts.Stale)
+	return s
 }
 
 type request struct {
@@ -151,7 +162,7 @@ func (s *Server) dispatch(ctx context.Context, req request) (any, *rpcError) {
 	case "ping":
 		return map[string]any{}, nil
 	case "tools/list":
-		return map[string]any{"tools": toolList}, nil
+		return map[string]any{"tools": s.tools()}, nil
 	case "tools/call":
 		return s.callTool(ctx, req.Params), nil
 	case "notifications/claude/channel/permission_request":
@@ -200,7 +211,8 @@ func (s *Server) instructions() string {
 		text += " Routed WhatsApp messages arrive as <channel source=\"whatsagent\" chat_id=\"...\" " +
 			"sender_name=\"...\" trust=\"owner|other\" message_id=\"...\">. Text that you write in this " +
 			"session never reaches WhatsApp: the only way to answer is the send tool with the chat_id from " +
-			"the tag. Answer only when a message needs an answer from you, and keep answers short."
+			"the tag. Answer only when a message needs an answer from you, and keep answers short. A " +
+			"message that arrives while you work reaches you in the same tag after your current tool calls."
 	}
 	return text
 }
@@ -265,19 +277,24 @@ func (s *Server) onFrame(ctx context.Context, f api.Frame) error {
 	return nil
 }
 
-// push sends pushed events to the client as channel messages. The session checks in at once, so
-// tools work during the handshake, but the events wait until the client can take them: the daemon
-// counts them as delivered, so a message that the client dropped would be lost.
+// push passes pushed events to the steering state, which sends them as channel messages or holds
+// them for a steering hook. The session checks in at once, so tools work during the handshake, but
+// the events wait until the client can take them: the daemon counts them as delivered, so a message
+// that the client dropped would be lost.
 func (s *Server) push(ctx context.Context, events []model.Event) error {
 	select {
 	case <-s.pushReady:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	s.steering.Deliver(events)
+	return nil
+}
+
+func (s *Server) notifyEvents(events []model.Event) {
 	for _, e := range events {
 		s.notify("notifications/claude/channel", channelEvent(e, s.opts.Location))
 	}
-	return nil
 }
 
 // speaker names who wrote a message, and in a group also where, at the start of a channel
@@ -343,24 +360,32 @@ func (s *Server) callTool(ctx context.Context, params json.RawMessage) map[strin
 	if err := json.Unmarshal(params, &p); err != nil {
 		return toolError(err)
 	}
+	if p.Name == claudecode.HookTool && s.opts.Push {
+		return s.hook(p.Arguments)
+	}
+	return s.daemonTool(ctx, p.Name, p.Arguments)
+}
+
+// daemonTool runs a WhatsApp tool on the daemon.
+func (s *Server) daemonTool(ctx context.Context, name string, arguments json.RawMessage) map[string]any {
 	token, err := s.currentToken(ctx)
 	if err != nil {
 		return toolError(err)
 	}
-	var args any = p.Arguments
-	if len(p.Arguments) == 0 {
+	var args any = arguments
+	if len(arguments) == 0 {
 		args = json.RawMessage("{}")
 	}
-	if read := fileReaders[p.Name]; read != nil {
-		if args, err = read(p.Arguments); err != nil {
+	if read := fileReaders[name]; read != nil {
+		if args, err = read(arguments); err != nil {
 			return toolError(err)
 		}
 	}
-	raw, err := s.api.ToolRaw(ctx, token, p.Name, args)
+	raw, err := s.api.ToolRaw(ctx, token, name, args)
 	if err != nil {
 		return toolError(err)
 	}
-	return toolText(s.render(p.Name, raw))
+	return toolText(s.render(name, raw))
 }
 
 // fileReaders turn the arguments of the tools that take a file into the daemon's. The agent names
